@@ -1,6 +1,6 @@
 # Mediator quorum for high-value disputes
 
-Tracking issue: [#195](https://github.com/EziAgric/EziAgric/issues/195)
+Tracking issue: [#195](https://github.com/innov8/innov8/issues/195)
 
 ## Why
 

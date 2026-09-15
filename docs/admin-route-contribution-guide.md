@@ -1,7 +1,7 @@
 # Admin Route Contribution Guide
 
 This guide covers everything a developer needs to know to add or modify admin
-routes in the EziAgric backend.
+routes in the innov8 backend.
 
 ## Directory and module structure
 
