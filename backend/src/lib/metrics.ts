@@ -1,6 +1,6 @@
 import { Counter, Histogram, metrics } from "@opentelemetry/api";
 
-const METER_NAME = "amana-backend";
+const METER_NAME = "innov8-backend";
 
 export type StellarTransactionOutcome =
   | "success"
@@ -356,10 +356,10 @@ export function recordReconciliationSweep(
 //   created → funded → delivered/released → refunded/disputed
 //
 // Naming convention:
-//   amana_trades_<event>_total  — monotonic counters (cardinality-safe labels)
-//   amana_trade_time_to_<phase>_ms — histograms for time-between-state durations
-//   amana_trade_gmv_usdc        — histogram approximating GMV per trade
-//   amana_dispute_rate_window   — gauge fed by a sliding-window dispute-rate alert helper
+//   innov8_trades_<event>_total  — monotonic counters (cardinality-safe labels)
+//   innov8_trade_time_to_<phase>_ms — histograms for time-between-state durations
+//   innov8_trade_gmv_usdc        — histogram approximating GMV per trade
+//   innov8_dispute_rate_window   — gauge fed by a sliding-window dispute-rate alert helper
 // ---------------------------------------------------------------------------
 
 export type TradeFunnelEvent =
@@ -399,7 +399,7 @@ let tradesFunnelCounter: Counter | undefined;
 
 function getTradesFunnelCounter(): Counter {
   if (!tradesFunnelCounter) {
-    tradesFunnelCounter = getMeter().createCounter("amana_trades_total", {
+    tradesFunnelCounter = getMeter().createCounter("innov8_trades_total", {
       description:
         "Total trade lifecycle transitions by event type. Use to build funnel: created→funded→released/refunded.",
     });
@@ -421,7 +421,7 @@ let timeToFundHistogram: Histogram | undefined;
 
 function getTimeToFundHistogram(): Histogram {
   if (!timeToFundHistogram) {
-    timeToFundHistogram = getMeter().createHistogram("amana_trade_time_to_fund_ms", {
+    timeToFundHistogram = getMeter().createHistogram("innov8_trade_time_to_fund_ms", {
       description: "Time from trade creation to escrow funded state, in milliseconds.",
       unit: "ms",
     });
@@ -439,7 +439,7 @@ let timeToReleaseHistogram: Histogram | undefined;
 
 function getTimeToReleaseHistogram(): Histogram {
   if (!timeToReleaseHistogram) {
-    timeToReleaseHistogram = getMeter().createHistogram("amana_trade_time_to_release_ms", {
+    timeToReleaseHistogram = getMeter().createHistogram("innov8_trade_time_to_release_ms", {
       description:
         "Time from escrow funded to funds released or refunded, in milliseconds. Tracks median settlement speed.",
       unit: "ms",
@@ -466,7 +466,7 @@ let tradeGmvHistogram: Histogram | undefined;
 
 function getTradeGmvHistogram(): Histogram {
   if (!tradeGmvHistogram) {
-    tradeGmvHistogram = getMeter().createHistogram("amana_trade_gmv_usdc_cents", {
+    tradeGmvHistogram = getMeter().createHistogram("innov8_trade_gmv_usdc_cents", {
       description:
         "Gross merchandise value per completed/released trade in USDC cents (amount * 100). Proxy for revenue scale.",
       unit: "1",
@@ -497,10 +497,10 @@ let disputeAnomalyCounter: Counter | undefined;
 
 function getDisputeAnomalyCounter(): Counter {
   if (!disputeAnomalyCounter) {
-    disputeAnomalyCounter = getMeter().createCounter("amana_dispute_rate_anomalies_total", {
+    disputeAnomalyCounter = getMeter().createCounter("innov8_dispute_rate_anomalies_total", {
       description:
         "Number of times the rolling dispute-rate window exceeded the anomaly threshold. " +
-        "Pair with amana_trades_total{event='disputed'} for rate calculation.",
+        "Pair with innov8_trades_total{event='disputed'} for rate calculation.",
     });
   }
   return disputeAnomalyCounter;
@@ -591,4 +591,200 @@ export function recordEventListenerLag(seconds: number): void {
   }
   const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
   getEventListenerLagHistogram().record(safeSeconds);
+}
+
+// ---------------------------------------------------------------------------
+// Queue backlog metrics
+//
+// Tracks BullMQ queue health for notification, webhook, and export workers.
+// Metrics exported to Prometheus for dashboard visualization and alerting.
+// Records queue depth (waiting), active (processing), and failed counts.
+// ---------------------------------------------------------------------------
+
+export interface QueueMetricsRecorder {
+  recordQueueDepth(queueName: string, depth: number): void;
+  recordQueueActive(queueName: string, activeCount: number): void;
+  recordQueueFailed(queueName: string, failedCount: number): void;
+}
+
+let customQueueRecorder: QueueMetricsRecorder | null = null;
+
+export function __setQueueRecorderForTests(
+  recorder: QueueMetricsRecorder | null,
+): void {
+  customQueueRecorder = recorder;
+}
+
+// Store latest queue counts in memory for Prometheus scraping.
+// ObservableGauges read from this store on each Prometheus scrape.
+const queueMetricsStore = new Map<string, {
+  depth: number;
+  active: number;
+  failed: number;
+}>();
+
+// ObservableGauges for queue metrics
+let queueDepthGauge: any | undefined;
+let queueActiveGauge: any | undefined;
+let queueFailedGauge: any | undefined;
+
+function getQueueDepthGauge(): any {
+  if (!queueDepthGauge) {
+    queueDepthGauge = getMeter().createObservableGauge("queue_depth", {
+      description: "Number of waiting jobs in the queue by queue name",
+    });
+    // Register callback to read from store
+    (queueDepthGauge as any).addCallback((result: any) => {
+      for (const [queueName, metrics] of queueMetricsStore) {
+        result.observe(metrics.depth, { queue_name: queueName });
+      }
+    });
+  }
+  return queueDepthGauge;
+}
+
+function getQueueActiveGauge(): any {
+  if (!queueActiveGauge) {
+    queueActiveGauge = getMeter().createObservableGauge("queue_active", {
+      description: "Number of active (processing) jobs in the queue by queue name",
+    });
+    (queueActiveGauge as any).addCallback((result: any) => {
+      for (const [queueName, metrics] of queueMetricsStore) {
+        result.observe(metrics.active, { queue_name: queueName });
+      }
+    });
+  }
+  return queueActiveGauge;
+}
+
+function getQueueFailedGauge(): any {
+  if (!queueFailedGauge) {
+    queueFailedGauge = getMeter().createObservableGauge("queue_failed", {
+      description: "Number of failed jobs in the queue by queue name",
+    });
+    (queueFailedGauge as any).addCallback((result: any) => {
+      for (const [queueName, metrics] of queueMetricsStore) {
+        result.observe(metrics.failed, { queue_name: queueName });
+      }
+    });
+  }
+  return queueFailedGauge;
+}
+
+/**
+ * Record queue depth (number of waiting jobs).
+ * Call this periodically (e.g., from QueueMetricsService).
+ */
+export function recordQueueDepth(queueName: string, depth: number): void {
+  if (customQueueRecorder) {
+    customQueueRecorder.recordQueueDepth(queueName, depth);
+    return;
+  }
+  const current = queueMetricsStore.get(queueName) || { depth: 0, active: 0, failed: 0 };
+  queueMetricsStore.set(queueName, { ...current, depth });
+  // Ensure gauges are initialized so they're included in the next scrape
+  getQueueDepthGauge();
+}
+
+/**
+ * Record queue active count (number of jobs currently being processed).
+ * Call this periodically alongside recordQueueDepth.
+ */
+export function recordQueueActive(queueName: string, activeCount: number): void {
+  if (customQueueRecorder) {
+    customQueueRecorder.recordQueueActive(queueName, activeCount);
+    return;
+  }
+  const current = queueMetricsStore.get(queueName) || { depth: 0, active: 0, failed: 0 };
+  queueMetricsStore.set(queueName, { ...current, active: activeCount });
+  getQueueActiveGauge();
+}
+
+/**
+ * Record queue failed count (number of jobs in the failed set).
+ * Call this periodically alongside other queue metrics.
+ */
+export function recordQueueFailed(queueName: string, failedCount: number): void {
+  if (customQueueRecorder) {
+    customQueueRecorder.recordQueueFailed(queueName, failedCount);
+    return;
+  }
+  const current = queueMetricsStore.get(queueName) || { depth: 0, active: 0, failed: 0 };
+  queueMetricsStore.set(queueName, { ...current, failed: failedCount });
+  getQueueFailedGauge();
+}
+
+export function __resetQueueMetricsForTests(): void {
+  customQueueRecorder = null;
+  queueMetricsStore.clear();
+  queueDepthGauge = undefined;
+  queueActiveGauge = undefined;
+  queueFailedGauge = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Trade expiry sweeper metrics
+// ---------------------------------------------------------------------------
+
+export type TradeExpirySweepOutcome = "swept" | "refunded" | "failed";
+
+export interface TradeExpirySweepMetrics {
+  swept: number;
+  refunded: number;
+  failed: number;
+  durationMs: number;
+  status: "success" | "error";
+}
+
+/** Injectable recorder for unit-testing sweeper metrics without a live OTel pipeline. */
+export interface TradeExpiryMetricsRecorder {
+  recordTradeExpirySweep(result: TradeExpirySweepMetrics): void;
+}
+
+let tradeExpiryRecorder: TradeExpiryMetricsRecorder | null = null;
+let tradeExpiryTradesCounter: Counter | undefined;
+let tradeExpiryDuration: Histogram | undefined;
+
+function getTradeExpiryTradesCounter(): Counter {
+  if (!tradeExpiryTradesCounter) {
+    tradeExpiryTradesCounter = getMeter().createCounter("trade_expiry_trades_total", {
+      description:
+        "Trades processed by the expiry sweeper, by outcome: swept (marked EXPIRED), refunded (expired while FUNDED, refund owed), failed.",
+    });
+  }
+  return tradeExpiryTradesCounter;
+}
+
+function getTradeExpiryDuration(): Histogram {
+  if (!tradeExpiryDuration) {
+    tradeExpiryDuration = getMeter().createHistogram("trade_expiry_sweep_duration_ms", {
+      description: "Duration of a trade expiry sweep run, in milliseconds.",
+      unit: "ms",
+    });
+  }
+  return tradeExpiryDuration;
+}
+
+export function recordTradeExpirySweep(result: TradeExpirySweepMetrics): void {
+  if (tradeExpiryRecorder) { tradeExpiryRecorder.recordTradeExpirySweep(result); return; }
+  const counter = getTradeExpiryTradesCounter();
+  const outcomes: Array<[TradeExpirySweepOutcome, number]> = [
+    ["swept", result.swept],
+    ["refunded", result.refunded],
+    ["failed", result.failed],
+  ];
+  for (const [outcome, count] of outcomes) {
+    if (count > 0) counter.add(count, { outcome });
+  }
+  getTradeExpiryDuration().record(result.durationMs, { status: result.status });
+}
+
+export function __setTradeExpiryRecorderForTests(recorder: TradeExpiryMetricsRecorder | null): void {
+  tradeExpiryRecorder = recorder;
+}
+
+export function __resetTradeExpiryMetricsForTests(): void {
+  tradeExpiryRecorder = null;
+  tradeExpiryTradesCounter = undefined;
+  tradeExpiryDuration = undefined;
 }
