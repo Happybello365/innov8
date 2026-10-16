@@ -148,3 +148,12 @@ export const webhookPurgeQueue = new Queue<WebhookPurgeJobData>('webhook-purge',
   connection: createQueueConnection(),
   defaultJobOptions,
 });
+
+export interface PilotFeedbackSLACheckJobData {
+  batchSize?: number;
+}
+
+export const pilotFeedbackSlaCheckQueue = new Queue<PilotFeedbackSLACheckJobData>('pilot-feedback-sla-check', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});

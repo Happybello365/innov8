@@ -114,6 +114,11 @@ export const ALERT_REGISTRY: Record<AlertType, AlertRegistryEntry> = {
     // underlying gap until someone's had a chance to patch the denylist.
     dedupeWindowMs: 24 * 60 * 60_000,
   },
+  pilot_feedback_sla_violation: {
+    routing: "ticket",
+    runbookUrl: "docs/runbooks/incident-response.md#severity-levels",
+    description: "A pilot feedback item has been open longer than the configured SLA without resolution.",
+  },
 };
 
 export function getAlertRegistryEntry(type: AlertType): AlertRegistryEntry {
