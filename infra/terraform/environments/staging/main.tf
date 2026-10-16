@@ -16,7 +16,7 @@ module "vpc" {
   source = "../../modules/vpc"
 
   project_name         = "amana"
-  environment           = "staging"
+  environment          = "staging"
   region               = var.region
   vpc_cidr             = "10.0.0.0/16"
   public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
@@ -28,65 +28,65 @@ module "vpc" {
 module "rds" {
   source = "../../modules/rds"
 
-  project_name          = "amana"
-  environment            = "staging"
-  vpc_id                = module.vpc.vpc_id
-  subnet_ids            = module.vpc.private_subnet_ids
-  allowed_cidr_blocks   = [module.vpc.vpc_cidr]
-  engine                = "aurora-postgresql"
-  engine_version        = "15.4"
-  instance_class        = "db.r5.large"
-  database_name         = "amana_staging"
-  master_username       = var.db_master_username
-  master_password       = var.db_master_password
-  port                  = 5432
-  replica_count         = 2
+  project_name            = "amana"
+  environment             = "staging"
+  vpc_id                  = module.vpc.vpc_id
+  subnet_ids              = module.vpc.private_subnet_ids
+  allowed_cidr_blocks     = [module.vpc.vpc_cidr]
+  engine                  = "aurora-postgresql"
+  engine_version          = "15.4"
+  instance_class          = "db.r5.large"
+  database_name           = "amana_staging"
+  master_username         = var.db_master_username
+  master_password         = var.db_master_password
+  port                    = 5432
+  replica_count           = 2
   backup_retention_period = 30
   preferred_backup_window = "03:00-04:00"
-  skip_final_snapshot   = false
-  deletion_protection   = true
+  skip_final_snapshot     = false
+  deletion_protection     = true
 }
 
 module "redis" {
   source = "../../modules/redis"
 
-  project_name              = "amana"
+  project_name               = "amana"
   environment                = "staging"
-  vpc_id                    = module.vpc.vpc_id
-  subnet_ids                = module.vpc.private_subnet_ids
-  allowed_cidr_blocks       = [module.vpc.vpc_cidr]
-  engine                    = "redis"
-  engine_version            = "7.0"
-  node_type                 = "cache.r5.large"
-  port                      = 6379
-  replica_count             = 3
-  parameter_group_name      = "default.redis7"
+  vpc_id                     = module.vpc.vpc_id
+  subnet_ids                 = module.vpc.private_subnet_ids
+  allowed_cidr_blocks        = [module.vpc.vpc_cidr]
+  engine                     = "redis"
+  engine_version             = "7.0"
+  node_type                  = "cache.r5.large"
+  port                       = 6379
+  replica_count              = 3
+  parameter_group_name       = "default.redis7"
   automatic_failover_enabled = true
-  multi_az_enabled          = true
+  multi_az_enabled           = true
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true
-  auth_token                = var.redis_auth_token
-  snapshot_retention_limit  = 14
-  snapshot_window           = "02:00-03:00"
+  auth_token                 = var.redis_auth_token
+  snapshot_retention_limit   = 14
+  snapshot_window            = "02:00-03:00"
 }
 
 module "eks" {
   source = "../../modules/eks"
 
-  project_name             = "amana"
-  environment              = "staging"
-  region                   = var.region
-  vpc_id                   = module.vpc.vpc_id
-  subnet_ids               = module.vpc.private_subnet_ids
-  kubernetes_version       = "1.29"
-  instance_types           = ["t3.large"]
-  desired_size             = 3
-  max_size                 = 6
-  min_size                 = 2
-  node_labels              = {}
-  endpoint_private_access  = true
-  endpoint_public_access   = false
-  public_access_cidrs      = []
+  project_name              = "amana"
+  environment               = "staging"
+  region                    = var.region
+  vpc_id                    = module.vpc.vpc_id
+  subnet_ids                = module.vpc.private_subnet_ids
+  kubernetes_version        = "1.29"
+  instance_types            = ["t3.large"]
+  desired_size              = 3
+  max_size                  = 6
+  min_size                  = 2
+  node_labels               = {}
+  endpoint_private_access   = true
+  endpoint_public_access    = false
+  public_access_cidrs       = []
   enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
 }
 
@@ -105,6 +105,36 @@ module "secrets" {
   project_name       = "amana"
   environment        = "staging"
   eks_node_role_name = module.eks.node_role_arn
+}
+
+# ---------------------------------------------------------------------------
+# CDN — CloudFront in front of frontend static assets
+#
+# Gated by enable_cdn (default false).  Enable in staging by passing:
+#   -var="enable_cdn=true"
+# or by setting TF_VAR_enable_cdn=true in the CI environment.
+#
+# When disabled, the module creates no resources and every output is an
+# empty string, so no other resource in this file is affected.
+# ---------------------------------------------------------------------------
+
+module "cdn" {
+  source = "../../modules/cdn"
+
+  project_name = "amana"
+  environment  = "staging"
+  enable_cdn   = var.enable_cdn
+
+  # Optional: uncomment and set once a certificate exists in us-east-1
+  # acm_certificate_arn = var.cdn_acm_certificate_arn
+  # aliases             = ["cdn.amanavault.com"]
+
+  enable_waf      = false # flip to true once WAFv2 WebACL is provisioned
+  waf_web_acl_arn = ""
+
+  enable_access_logs = true
+  log_retention_days = 90
+  price_class        = "PriceClass_100"
 }
 
 
@@ -132,6 +162,12 @@ variable "redis_auth_token" {
   sensitive   = true
 }
 
+variable "enable_cdn" {
+  description = "Feature flag — set to true to provision the CloudFront CDN stack in staging."
+  type        = bool
+  default     = false
+}
+
 output "rds_endpoint" {
   description = "RDS endpoint"
   value       = module.rds.cluster_endpoint
@@ -150,4 +186,19 @@ output "eks_cluster_name" {
 output "vpc_id" {
   description = "VPC ID"
   value       = module.vpc.vpc_id
+}
+
+output "cdn_distribution_id" {
+  description = "CloudFront distribution ID (empty when enable_cdn = false)"
+  value       = module.cdn.distribution_id
+}
+
+output "cdn_domain_name" {
+  description = "CloudFront default domain name (empty when enable_cdn = false)"
+  value       = module.cdn.distribution_domain_name
+}
+
+output "cdn_assets_bucket" {
+  description = "S3 bucket holding frontend static assets (empty when enable_cdn = false)"
+  value       = module.cdn.assets_bucket_id
 }
