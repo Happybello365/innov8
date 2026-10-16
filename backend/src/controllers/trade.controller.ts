@@ -25,6 +25,7 @@ interface CreateTradeBody {
   amountUsdc?: unknown;
   buyerLossBps?: unknown;
   sellerLossBps?: unknown;
+  currency?: unknown;
 }
 
 function parseAdminPubkeys(): Set<string> {

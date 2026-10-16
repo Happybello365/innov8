@@ -60,6 +60,9 @@ function createRateLimiter(preset: RateLimitPreset, keyGenerator: KeyGenerator) 
       options: { message?: string | unknown; windowMs?: number; max?: number },
     ) => {
       const retryAfterSeconds = Math.ceil((options.windowMs ?? preset.windowMs) / 1000);
+      if (typeof res.setHeader === 'function') {
+        res.setHeader('Retry-After', String(retryAfterSeconds));
+      }
 
       res.status(429).json({
         code: ErrorCode.RATE_LIMIT_EXCEEDED,
