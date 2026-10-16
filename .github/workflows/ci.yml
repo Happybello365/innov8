@@ -310,11 +310,20 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         run: pnpm build
 
+      # Ephemeral Postgres + Redis for the test suite (docker-compose's `test`
+      # profile — see docker-compose.yml and scripts/test-up.sh). Without this,
+      # every test that touches Prisma or ioredis fails with ECONNREFUSED.
+      - name: Start test infrastructure (Postgres + Redis)
+        if: needs.changes.outputs.backend == 'true'
+        run: ../scripts/test-up.sh
+
       - name: Test
         if: needs.changes.outputs.backend == 'true'
         env:
           NODE_ENV: test
           JWT_SECRET: test-jwt-secret-value-with-minimum-length-32
+          DATABASE_URL: postgresql://postgres:password@localhost:5433/amana_test
+          REDIS_URL: redis://localhost:6381
         # --json writes a machine-readable result file used by the flake reporter
         run: pnpm test -- --json --outputFile=jest-results.json || true
 
@@ -363,6 +372,8 @@ jobs:
         env:
           NODE_ENV: test
           JWT_SECRET: test-jwt-secret-value-with-minimum-length-32
+          DATABASE_URL: postgresql://postgres:password@localhost:5433/amana_test
+          REDIS_URL: redis://localhost:6381
         run: pnpm jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatterns='admin\.auth\.ci-regression' --verbose
 
       - name: Validate admin OpenAPI docs
@@ -370,6 +381,8 @@ jobs:
         env:
           NODE_ENV: test
           JWT_SECRET: test-jwt-secret-value-with-minimum-length-32
+          DATABASE_URL: postgresql://postgres:password@localhost:5433/amana_test
+          REDIS_URL: redis://localhost:6381
         run: pnpm jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatterns='openapi\.(drift|docs)\.test' --verbose
 
       - name: Upload coverage report
