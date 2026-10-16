@@ -61,13 +61,17 @@ export interface AuthRequest extends Request {
 
 export class AuthService {
   static async generateChallenge(walletAddress: string): Promise<string> {
+    // Validate the raw input first (Stellar SDK requires the canonical
+    // uppercase Base32 form), then normalise for all storage and lookups so
+    // that mixed-case submissions always resolve to the same record.
     if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid Stellar public key', 400);
     }
+    const normalizedAddress = walletAddress.trim().toLowerCase();
 
     try {
       const challenge = crypto.randomBytes(32).toString('base64url');
-      const key = `${CHALLENGE_PREFIX}${walletAddress.toLowerCase()}`;
+      const key = `${CHALLENGE_PREFIX}${normalizedAddress}`;
 
       await redis.set(key, challenge, 'EX', CHALLENGE_TTL);
       return challenge;
@@ -78,7 +82,11 @@ export class AuthService {
   }
 
   static async verifySignatureAndIssueJWT(walletAddress: string, signedChallenge: string): Promise<string> {
-    const identity = walletAddress.toLowerCase();
+    // Normalise at the service boundary — identical to generateChallenge so the
+    // Redis key always matches regardless of the casing the caller provides.
+    // The original `walletAddress` is kept for Keypair.fromPublicKey which
+    // requires the canonical uppercase Stellar key form.
+    const identity = walletAddress.trim().toLowerCase();
     const failureKey = `${AUTH_FAILURE_PREFIX}${identity}`;
 
     try {
@@ -142,10 +150,11 @@ export class AuthService {
         await redis.set(failureKey, '0', 'EX', 1);
       }
 
-      // Ensure user exists
-      await findOrCreateUser(walletAddress);
+      // Ensure user exists — always pass the normalised address so the DB
+      // unique constraint on walletAddress is never violated by case variants.
+      await findOrCreateUser(identity);
 
-      return await this.issueToken(walletAddress);
+      return await this.issueToken(identity);
     } catch (error: unknown) {
       if (isAppError(error)) throw error;
       throw new AppError(ErrorCode.INFRA_ERROR, 'Authentication service dependency failure', 503);
