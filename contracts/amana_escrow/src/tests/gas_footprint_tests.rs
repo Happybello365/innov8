@@ -6,6 +6,8 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod gas_footprint_tests {
+    extern crate std;
+
     use crate::test_fixture::admin_address;
     use crate::{EscrowContract, EscrowContractClient};
     use soroban_sdk::{Address, Env, String, testutils::Address as _, token};
