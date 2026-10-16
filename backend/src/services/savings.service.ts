@@ -25,6 +25,20 @@ interface GoalsAnalyticsResponse {
     timestamp: string;
 }
 
+export interface GoalContributionItem {
+    id: number;
+    amountUsdc: string;
+    txHash: string;
+    createdAt: string;
+}
+
+export interface GoalContributionsPage {
+    goalId: string;
+    data: GoalContributionItem[];
+    /** Cursor for the next page; `null` when there are no more results. */
+    nextCursor: number | null;
+}
+
 type SavingsDatabase = Pick<PrismaClient, "goal" | "vault" | "user">;
 
 export class SavingsService {
@@ -237,5 +251,44 @@ export class SavingsService {
             where: { goalId },
             data: { status: "CANCELLED" },
         });
+    }
+
+    /**
+     * Retrieve cursor-paginated contribution history for a goal.
+     * Ownership is validated by the caller (route handler).
+     *
+     * @param goalId  - The goal's unique blockchain identifier.
+     * @param cursor  - Last seen contribution id for keyset pagination; omit for first page.
+     * @param limit   - Page size (default 20, max 100).
+     */
+    async getGoalContributions(
+        goalId: string,
+        cursor?: number,
+        limit = 20,
+    ): Promise<GoalContributionsPage> {
+        const pageSize = Math.min(Math.max(1, limit), 100);
+
+        const rows = await (this.prisma as any).goalContribution.findMany({
+            where: {
+                goalId,
+                ...(cursor ? { id: { lt: cursor } } : {}),
+            },
+            orderBy: { id: "desc" },
+            take: pageSize + 1,
+        });
+
+        const hasMore = rows.length > pageSize;
+        const page = hasMore ? rows.slice(0, pageSize) : rows;
+
+        return {
+            goalId,
+            data: page.map((r: any) => ({
+                id: r.id,
+                amountUsdc: r.amountUsdc,
+                txHash: r.txHash,
+                createdAt: r.createdAt.toISOString(),
+            })),
+            nextCursor: hasMore ? page[page.length - 1].id : null,
+        };
     }
 }
