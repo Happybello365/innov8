@@ -12,7 +12,7 @@ spec:
   tls:
     - hosts:
         - "admin.internal.amanavault.com"
-      secretName: amanavault-admin-tls
+      secretName: innov8-admin-tls
   rules:
     - host: "admin.internal.amanavault.com"
       http:
