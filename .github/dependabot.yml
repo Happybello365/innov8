@@ -1,8 +1,18 @@
-# Dependabot configuration — grouped update PRs by risk.
+# Dependabot configuration — security-first with low-risk grouping
+# 
+# Strategy:
+# - Security updates: Ungrouped, automatic PR per vulnerability for immediate visibility
+# - Low-risk patches (patch + minor): Grouped into single PR per stack to reduce noise
+# - Schedule: Staggered across week to spread CI load
+#   - Monday: Backend, GitHub Actions
+#   - Tuesday: Frontend, Root tooling
+#   - Wednesday: Mobile, Contracts
+# 
 # Complements the blocking audit gate in .github/workflows/security-audit.yml (issue #204).
 version: 2
 updates:
   # ---- Backend (npm) ----
+  # Role: Core API, high-criticality. Weekly updates Monday.
   - package-ecosystem: npm
     directory: /backend
     schedule:
@@ -13,46 +23,83 @@ updates:
       - dependencies
       - backend
     groups:
+      # Security updates: ungrouped and immediate
+      backend-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      # Low-risk patches: grouped to reduce PR noise
       backend-low-risk:
         applies-to: version-updates
         update-types:
           - minor
           - patch
-      backend-security:
-        applies-to: security-updates
-        patterns:
-          - "*"
 
   # ---- Frontend (npm) ----
+  # Role: Web UI, public-facing. Weekly updates Tuesday.
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
-      day: monday
+      day: tuesday
     open-pull-requests-limit: 10
     labels:
       - dependencies
       - frontend
     groups:
+      # Security updates: ungrouped and immediate
+      frontend-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      # Low-risk patches: grouped to reduce PR noise
       frontend-low-risk:
         applies-to: version-updates
         update-types:
           - minor
           - patch
-      frontend-security:
+
+  # ---- Mobile (npm) ----
+  # Role: React Native app, user-facing. Weekly updates Wednesday.
+  - package-ecosystem: npm
+    directory: /mobile
+    schedule:
+      interval: weekly
+      day: wednesday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - mobile
+    groups:
+      # Security updates: ungrouped and immediate
+      mobile-security:
         applies-to: security-updates
         patterns:
           - "*"
+      # Low-risk patches: grouped to reduce PR noise
+      mobile-low-risk:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
 
   # ---- Repo root tooling (npm) ----
+  # Role: Build and CI tooling. Weekly updates Tuesday.
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-      day: monday
+      day: tuesday
     labels:
       - dependencies
+      - tooling
     groups:
+      # Security updates: ungrouped and immediate
+      root-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      # Low-risk patches: grouped to reduce PR noise
       root-low-risk:
         applies-to: version-updates
         update-types:
@@ -60,26 +107,31 @@ updates:
           - patch
 
   # ---- Contracts (cargo) ----
+  # Role: On-chain escrow logic, highest-criticality. Weekly updates Wednesday.
   - package-ecosystem: cargo
     directory: /contracts
     schedule:
       interval: weekly
-      day: monday
+      day: wednesday
+    open-pull-requests-limit: 10
     labels:
       - dependencies
       - contracts
     groups:
+      # Security updates: ungrouped and immediate
+      contracts-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      # Low-risk patches: grouped to reduce PR noise
       contracts-low-risk:
         applies-to: version-updates
         update-types:
           - minor
           - patch
-      contracts-security:
-        applies-to: security-updates
-        patterns:
-          - "*"
 
   # ---- GitHub Actions ----
+  # Role: CI/CD automation. Weekly updates Monday.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -89,6 +141,7 @@ updates:
       - dependencies
       - ci
     groups:
+      # Group all action updates (these are typically low-risk)
       actions-all:
         patterns:
           - "*"
