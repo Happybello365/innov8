@@ -900,6 +900,17 @@ pub enum DataKey {
     /// `accept_admin()`. Absent means no transfer is in progress.
     /// Stored in instance storage alongside `Admin` (#1).
     PendingAdmin,
+    /// Deployment-time enablement switch for staged releases (#289).
+    StagedReleaseEnabled,
+    /// Ordered release tranches for a staged trade (#289).
+    TradeTranches(u64),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReleaseTranche {
+    pub amount: i128,
+    pub released: bool,
 }
 
 #[contracttype]
@@ -1753,8 +1764,39 @@ impl EscrowContract {
             .unwrap_or(true)
     }
 
+    /// Deployment-time enablement switch for staged releases (#289).
+    /// Admin only.
+    pub fn set_staged_release_enabled(env: Env, enabled: bool) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::StagedReleaseEnabled, &enabled);
+        Self::bump_instance_ttl(&env);
+    }
+
+    /// Returns true when staged releases are enabled. Defaults to false.
+    pub fn is_staged_release_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::StagedReleaseEnabled)
+            .unwrap_or(false)
+    }
+
+    /// Returns the release tranches configured for a trade, if any.
+    pub fn get_trade_tranches(env: Env, trade_id: u64) -> Option<Vec<ReleaseTranche>> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TradeTranches(trade_id))
+    }
+
     /// Return the total amount claimed (released) from a given trade.
-    /// This calculates the amount based on trade status and clawback history.
+    /// This calculates the amount based on trade status, tranche releases, and clawback history.
     /// Returns 0 if the trade has not completed or no funds have been released.
     pub fn get_claimed_amount(env: Env, trade_id: u64) -> i128 {
         let key = DataKey::Trade(trade_id);
@@ -1762,14 +1804,29 @@ impl EscrowContract {
             return 0;
         }
         let trade: Trade = Self::load_trade(&env, &key);
-        
+
+        if let Some(tranches) = env
+            .storage()
+            .persistent()
+            .get::<_, Vec<ReleaseTranche>>(&DataKey::TradeTranches(trade_id))
+        {
+            let mut claimed: i128 = 0;
+            for t in tranches.iter() {
+                if t.released {
+                    claimed = claimed.saturating_add(t.amount);
+                }
+            }
+            let clawed_back = Self::get_clawback_total(env, trade_id);
+            return claimed.saturating_sub(clawed_back);
+        }
+
         match trade.status {
             TradeStatus::Completed => {
                 let original_amount = trade.amount;
                 let clawed_back = Self::get_clawback_total(env, trade_id);
                 original_amount.saturating_sub(clawed_back)
             }
-            _ => 0
+            _ => 0,
         }
     }
 
@@ -2081,6 +2138,107 @@ impl EscrowContract {
         .publish(&env);
         Self::bump_instance_ttl(&env);
         trade_id
+    }
+
+    /// Creates a trade with staged release tranches (#289).
+    /// Requires staged release feature flag to be enabled.
+    /// Tranches must sum exactly to `amount`.
+    pub fn create_staged_trade(
+        env: Env,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+        buyer_loss_bps: u32,
+        seller_loss_bps: u32,
+        expires_at: Option<u64>,
+        tranches: Vec<i128>,
+    ) -> u64 {
+        assert!(
+            Self::is_staged_release_enabled(env.clone()),
+            "staged release feature is disabled"
+        );
+        assert!(!tranches.is_empty(), "tranches must not be empty");
+        let mut sum: i128 = 0;
+        let mut release_tranches = Vec::new(&env);
+        for t_amt in tranches.iter() {
+            assert!(t_amt > 0, "tranche amount must be positive");
+            sum = sum.checked_add(t_amt).expect("tranche sum overflow");
+            release_tranches.push_back(ReleaseTranche {
+                amount: t_amt,
+                released: false,
+            });
+        }
+        assert!(
+            sum == amount,
+            "tranches must sum exactly to trade amount"
+        );
+
+        let trade_id = Self::create_trade(
+            env.clone(),
+            buyer,
+            seller,
+            amount,
+            buyer_loss_bps,
+            seller_loss_bps,
+            expires_at,
+        );
+
+        env.storage().persistent().set(
+            &DataKey::TradeTranches(trade_id),
+            &release_tranches,
+        );
+        Self::bump_trade_ttl(&env, trade_id);
+
+        trade_id
+    }
+
+    /// Sets or updates tranches for an unfunded trade in Created status (#289).
+    pub fn set_trade_tranches(
+        env: Env,
+        trade_id: u64,
+        caller: Address,
+        tranches: Vec<i128>,
+    ) {
+        assert!(
+            Self::is_staged_release_enabled(env.clone()),
+            "staged release feature is disabled"
+        );
+        caller.require_auth();
+        let key = DataKey::Trade(trade_id);
+        let trade: Trade = Self::load_trade(&env, &key);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        assert!(
+            caller == trade.buyer || caller == admin,
+            "Unauthorized caller"
+        );
+        assert!(
+            matches!(trade.status, TradeStatus::Created),
+            "Trade must be in Created status to set tranches"
+        );
+        assert!(!tranches.is_empty(), "tranches must not be empty");
+        let mut sum: i128 = 0;
+        let mut release_tranches = Vec::new(&env);
+        for t_amt in tranches.iter() {
+            assert!(t_amt > 0, "tranche amount must be positive");
+            sum = sum.checked_add(t_amt).expect("tranche sum overflow");
+            release_tranches.push_back(ReleaseTranche {
+                amount: t_amt,
+                released: false,
+            });
+        }
+        assert!(
+            sum == trade.amount,
+            "tranches must sum exactly to trade amount"
+        );
+        env.storage().persistent().set(
+            &DataKey::TradeTranches(trade_id),
+            &release_tranches,
+        );
+        Self::bump_trade_ttl(&env, trade_id);
     }
 
     pub fn deposit(env: Env, trade_id: u64) {
@@ -2921,50 +3079,140 @@ impl EscrowContract {
         );
 
         let fee_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = checked_fee_amount(trade.amount, fee_bps);
-        let seller_amount = trade.amount - fee_amount;
-        assert!(
-            seller_amount + fee_amount == trade.amount,
-            "release_funds: cNGN conservation invariant violated"
-        );
-        assert!(seller_amount >= 0, "seller_amount must be non-negative");
-        assert!(fee_amount >= 0, "fee_amount must be non-negative");
-        let token_client = token::Client::new(&env, &trade.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &trade.seller,
-            &seller_amount,
-        );
-        if fee_amount > 0 {
-            let accrued_fees: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::AccruedFees)
-                .unwrap_or(0);
+
+        let tranches_opt: Option<Vec<ReleaseTranche>> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TradeTranches(trade_id));
+
+        if let Some(mut tranches) = tranches_opt {
+            // Staged release path (#289)
+            let mut found_index: Option<u32> = None;
+            for i in 0..tranches.len() {
+                if !tranches.get(i).unwrap().released {
+                    found_index = Some(i);
+                    break;
+                }
+            }
+            let idx = found_index.expect("All tranches have already been released");
+            let mut current_tranche = tranches.get(idx).unwrap();
+            let tranche_amount = current_tranche.amount;
+            let fee_amount = checked_fee_amount(tranche_amount, fee_bps);
+            let seller_amount = tranche_amount - fee_amount;
+            assert!(
+                seller_amount + fee_amount == tranche_amount,
+                "release_funds: cNGN conservation invariant violated"
+            );
+            assert!(seller_amount >= 0, "seller_amount must be non-negative");
+            assert!(fee_amount >= 0, "fee_amount must be non-negative");
+
+            let token_client = token::Client::new(&env, &trade.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &trade.seller,
+                &seller_amount,
+            );
+            if fee_amount > 0 {
+                let accrued_fees: i128 = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::AccruedFees)
+                    .unwrap_or(0);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::AccruedFees, &(accrued_fees + fee_amount));
+            }
+
+            current_tranche.released = true;
+            tranches.set(idx, current_tranche);
             env.storage()
-                .instance()
-                .set(&DataKey::AccruedFees, &(accrued_fees + fee_amount));
+                .persistent()
+                .set(&DataKey::TradeTranches(trade_id), &tranches);
+
+            let all_released = tranches.iter().all(|t| t.released);
+            let now = env.ledger().timestamp();
+            trade.updated_at = now;
+            if all_released {
+                trade.status = TradeStatus::Completed;
+                Self::update_release_sequence(&env, &trade, |sequence, at| {
+                    sequence.released_at = Some(at);
+                });
+                Self::record_trade_event(
+                    &env,
+                    trade_id,
+                    "released",
+                    caller.clone(),
+                    "final tranche released — trade completed",
+                );
+            } else {
+                Self::record_trade_event(
+                    &env,
+                    trade_id,
+                    "released",
+                    caller.clone(),
+                    "partial tranche funds released to seller",
+                );
+            }
+            Self::save_trade(&env, &key, &trade);
+
+            FundsReleasedEvent {
+                trade_id,
+                seller_amount,
+                fee_amount,
+            }
+            .publish(&env);
+        } else {
+            // Existing single-release path (unchanged)
+            let fee_amount = checked_fee_amount(trade.amount, fee_bps);
+            let seller_amount = trade.amount - fee_amount;
+            assert!(
+                seller_amount + fee_amount == trade.amount,
+                "release_funds: cNGN conservation invariant violated"
+            );
+            assert!(seller_amount >= 0, "seller_amount must be non-negative");
+            assert!(fee_amount >= 0, "fee_amount must be non-negative");
+            let token_client = token::Client::new(&env, &trade.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &trade.seller,
+                &seller_amount,
+            );
+            if fee_amount > 0 {
+                let accrued_fees: i128 = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::AccruedFees)
+                    .unwrap_or(0);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::AccruedFees, &(accrued_fees + fee_amount));
+            }
+            let now = env.ledger().timestamp();
+            trade.status = TradeStatus::Completed;
+            trade.updated_at = now;
+            Self::save_trade(&env, &key, &trade);
+            Self::update_release_sequence(&env, &trade, |sequence, at| {
+                sequence.released_at = Some(at);
+            });
+            Self::record_trade_event(
+                &env,
+                trade_id,
+                "released",
+                caller.clone(),
+                "funds released to seller",
+            );
+            FundsReleasedEvent {
+                trade_id,
+                seller_amount,
+                fee_amount,
+            }
+            .publish(&env);
         }
-        let now = env.ledger().timestamp();
-        trade.status = TradeStatus::Completed;
-        trade.updated_at = now;
-        Self::save_trade(&env, &key, &trade);
-        Self::update_release_sequence(&env, &trade, |sequence, at| {
-            sequence.released_at = Some(at);
-        });
-        Self::record_trade_event(
-            &env,
-            trade_id,
-            "released",
-            caller.clone(),
-            "funds released to seller",
-        );
-        FundsReleasedEvent {
-            trade_id,
-            seller_amount,
-            fee_amount,
-        }
-        .publish(&env);
+    }
+
+    /// Releases the next scheduled tranche for a staged trade (#289).
+    pub fn release_tranche(env: Env, trade_id: u64, caller: Address) {
+        Self::release_funds(env, trade_id, caller);
     }
 
     // -----------------------------------------------------------------------
