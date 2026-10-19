@@ -272,4 +272,77 @@ mod gas_footprint_tests {
             "repeated_partial_clawback_5x",
         );
     }
+
+    /// Issue #286 — isolate the extra `release_funds` cost of stream accounting.
+    ///
+    /// A trade "with stream accounting" has a recorded `ClawbackTotal` (written
+    /// by a partial `admin_clawback` while funded), which `get_stream_accounting`
+    /// reports. Both scenarios release the same 10_000 remaining escrow so the
+    /// token transfer, fee maths and events are identical; only the stream
+    /// accounting bookkeeping differs. Only the `release_funds` call is measured.
+    fn measure_release_funds(with_stream_accounting: bool) -> CostEstimate {
+        const ESCROW_AMOUNT: i128 = 10_000;
+        const CLAWED_BACK: i128 = 5_000;
+
+        let funded_amount = if with_stream_accounting {
+            ESCROW_AMOUNT + CLAWED_BACK
+        } else {
+            ESCROW_AMOUNT
+        };
+        let ctx = Ctx::new(funded_amount);
+        let client = ctx.client();
+        let trade_id = client.create_trade(
+            &ctx.buyer,
+            &ctx.seller,
+            &funded_amount,
+            &5000_u32,
+            &5000_u32,
+            &None,
+        );
+        client.deposit(&trade_id);
+
+        if with_stream_accounting {
+            let destination = Address::generate(&ctx.env);
+            client.admin_clawback(&trade_id, &CLAWED_BACK, &destination);
+            assert_eq!(
+                client.get_stream_accounting(&trade_id),
+                (ESCROW_AMOUNT, 0, CLAWED_BACK),
+                "stream accounting must be recorded before release"
+            );
+        } else {
+            assert_eq!(client.get_stream_accounting(&trade_id), (ESCROW_AMOUNT, 0, 0));
+        }
+
+        client.confirm_delivery(&trade_id);
+        ctx.measure(|| {
+            client.release_funds(&trade_id, &ctx.buyer);
+        })
+    }
+
+    #[test]
+    fn test_gas_release_funds_stream_accounting_delta() {
+        let without = measure_release_funds(false);
+        let with = measure_release_funds(true);
+
+        assert!(without.cpu > 0 && without.mem > 0, "baseline cost must be non-zero");
+        assert!(with.cpu > 0 && with.mem > 0, "accounting cost must be non-zero");
+
+        // The measurement must be reproducible for the delta to mean anything.
+        assert_eq!(without, measure_release_funds(false), "release_funds cost is not deterministic");
+        assert_eq!(with, measure_release_funds(true), "release_funds cost is not deterministic");
+
+        println!(
+            "release_funds without stream accounting: CPU {}, MEM {}",
+            without.cpu, without.mem
+        );
+        println!(
+            "release_funds with stream accounting:    CPU {}, MEM {}",
+            with.cpu, with.mem
+        );
+        println!(
+            "stream accounting delta: CPU {:+}, MEM {:+}",
+            with.cpu as i128 - without.cpu as i128,
+            with.mem as i128 - without.mem as i128
+        );
+    }
 }
