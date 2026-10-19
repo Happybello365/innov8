@@ -65,6 +65,7 @@ jest.mock('react-native', () => {
 jest.mock('../../api/trade', () => ({
   tradeApi: {
     listTrades: jest.fn(),
+    createTrade: jest.fn(),
   },
 }));
 
@@ -278,6 +279,75 @@ describe('Offline Service', () => {
 
       // After removal, callback must not be called
       expect(onSyncComplete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Offline trade creation queue (issue #268)', () => {
+    const payload = { sellerAddress: 'GABC', amountUsdc: '100', commodity: 'Maize' };
+    const row = (localId: string, status = 'pending') => ({
+      local_id: localId,
+      payload: JSON.stringify(payload),
+      status,
+      error: null,
+      created_at: 1,
+    });
+
+    it('queues a trade creation as a pending row', async () => {
+      const entry = await offlineService.queueTradeCreation(payload);
+      expect(entry.status).toBe('pending');
+      expect(mockDb.runAsync).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO pending_trades'),
+        [entry.localId, JSON.stringify(payload), 'pending', null, entry.createdAt]
+      );
+    });
+
+    it('removes a queued row once the API creates the trade', async () => {
+      mockDb.getAllAsync.mockResolvedValueOnce([row('local-1')]);
+      (tradeApi.createTrade as jest.Mock).mockResolvedValueOnce({ tradeId: 'T1', unsignedXdr: 'x' });
+
+      const result = await offlineService.syncPendingTrades();
+
+      expect(result.created).toEqual([{ localId: 'local-1', tradeId: 'T1' }]);
+      expect(mockDb.runAsync).toHaveBeenCalledWith(
+        'DELETE FROM pending_trades WHERE local_id = ?',
+        ['local-1']
+      );
+    });
+
+    it('marks the row failed (not dropped) when the server rejects it', async () => {
+      mockDb.getAllAsync.mockResolvedValueOnce([row('local-2')]);
+      (tradeApi.createTrade as jest.Mock).mockRejectedValueOnce({
+        response: { status: 400, data: { message: 'Seller address is invalid' } },
+      });
+
+      const result = await offlineService.syncPendingTrades();
+
+      expect(result.failed).toHaveLength(1);
+      expect(result.failed[0].error).toBe('Seller address is invalid');
+      expect(mockDb.runAsync).toHaveBeenCalledWith(
+        expect.stringContaining("status = 'failed'"),
+        ['Seller address is invalid', 'local-2']
+      );
+      expect(mockDb.runAsync).not.toHaveBeenCalledWith(
+        'DELETE FROM pending_trades WHERE local_id = ?',
+        ['local-2']
+      );
+    });
+
+    it('keeps the row pending on a network error so it retries later', async () => {
+      mockDb.getAllAsync.mockResolvedValueOnce([row('local-3')]);
+      (tradeApi.createTrade as jest.Mock).mockRejectedValueOnce(new Error('Network Error'));
+
+      const result = await offlineService.syncPendingTrades();
+
+      expect(result).toEqual({ created: [], failed: [] });
+      expect(mockDb.runAsync).not.toHaveBeenCalled();
+    });
+
+    it('skips rows already marked failed', async () => {
+      mockDb.getAllAsync.mockResolvedValueOnce([row('local-4', 'failed')]);
+      await offlineService.syncPendingTrades();
+      expect(tradeApi.createTrade).not.toHaveBeenCalled();
     });
   });
 });

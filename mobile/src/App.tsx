@@ -14,7 +14,12 @@ import {
 } from './services/notification.service';
 import type { RootStackParamList } from './types/navigation';
 import { AppNavigator } from './navigation/AppNavigator';
+import { UpdateBanner } from './components/UpdateBanner';
+import { initCrashReporting } from './services/crashReporting.service';
 import type { NotificationData } from './services/notification.service';
+
+// Install before the first render so boot-time crashes are captured too.
+initCrashReporting();
 
 export default function App() {
   const scheme = useColorScheme();
@@ -66,6 +71,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppNavigator isAuthenticated={!!token} isAdmin={isAdmin} />
+        <UpdateBanner />
         <StatusBar style={isDark ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
