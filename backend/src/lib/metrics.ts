@@ -369,6 +369,7 @@ export type TradeFunnelEvent =
   | "released"
   | "refunded"
   | "disputed"
+  | "dispute_resolved"
   | "expired"
   | "cancelled";
 
