@@ -41,6 +41,17 @@ const STATUS_COLORS: Record<TradeStatus, string> = {
   REFUNDED: '#6B7280',
 };
 
+// Labels must match web StatusBadge copy verbatim (issue #249).
+const STATUS_LABELS: Record<TradeStatus, string> = {
+  PENDING: 'Pending',
+  FUNDED: 'Funded',
+  IN_TRANSIT: 'In Transit',
+  DELIVERED: 'Delivered',
+  DISPUTED: 'Disputed',
+  COMPLETED: 'Completed',
+  REFUNDED: 'Refunded',
+};
+
 function TradeCard({ trade, onPress }: { trade: Trade; onPress: () => void }) {
   const statusColor = STATUS_COLORS[trade.status] ?? '#6B7280';
   const shortBuyer = `${trade.buyerAddress.slice(0, 6)}…${trade.buyerAddress.slice(-4)}`;
@@ -51,7 +62,7 @@ function TradeCard({ trade, onPress }: { trade: Trade; onPress: () => void }) {
       <View style={styles.cardRow}>
         <Text style={styles.tradeId}>#{trade.tradeId.slice(0, 8)}</Text>
         <View style={[styles.statusBadge, { backgroundColor: `${statusColor}22` }]}>
-          <Text style={[styles.statusText, { color: statusColor }]}>{trade.status}</Text>
+          <Text style={[styles.statusText, { color: statusColor }]}>{STATUS_LABELS[trade.status] ?? trade.status}</Text>
         </View>
       </View>
       <Text style={styles.amount}>{formatAmount(trade.amountUsdc, 'USDC')} USDC</Text>
