@@ -15,6 +15,7 @@ import type { RootStackParamList } from '../types/navigation';
 import { useTradeStore } from '../stores/tradeStore';
 import { StrKey } from '@stellar/stellar-sdk';
 
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 // Validation rules mirrored from frontend/src/app/trades/create/validation.ts
 function validateStep1Fields(data: FormData): Record<string, string> {
   const errors: Record<string, string> = {};
@@ -357,6 +358,7 @@ function ReviewRow({ label, value, mono }: { label: string; value: string; mono?
 }
 
 export default function CreateTradeScreen({ navigation }: Props) {
+  const { contentStyle } = useResponsiveLayout();
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
   const [data, setData] = useState<FormData>(defaults);
@@ -410,7 +412,7 @@ export default function CreateTradeScreen({ navigation }: Props) {
         <View style={{ width: 60 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, contentStyle]}>
         <StepIndicator current={step} total={3} />
 
         {step === 0 && (

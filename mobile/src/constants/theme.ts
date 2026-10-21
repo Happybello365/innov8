@@ -66,3 +66,23 @@ const dark: AppTheme = {
 export function getTheme(scheme: ColorSchemeName): AppTheme {
   return scheme === 'dark' ? dark : light;
 }
+
+/**
+ * Width breakpoints in density-independent pixels (#270).
+ * 768dp ≈ portrait iPad mini / 8" Android tablets; 1024dp ≈ landscape tablets.
+ */
+export const BREAKPOINTS = {
+  tablet: 768,
+  /** At and above this width, list/detail screens use two columns. */
+  twoColumn: 768,
+  wide: 1024,
+} as const;
+
+export const LAYOUT = {
+  /** Readable maximum width for single-column content on tablets. */
+  maxContentWidth: 720,
+  /** List pane share of the window in two-column mode, clamped to min/max. */
+  listPaneRatio: 0.38,
+  listPaneMin: 320,
+  listPaneMax: 440,
+} as const;

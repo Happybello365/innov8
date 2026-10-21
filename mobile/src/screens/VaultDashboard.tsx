@@ -14,6 +14,7 @@ import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
 import type { Trade } from '../types/trade';
 
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 const ACTIVE_STATUSES = new Set(['FUNDED', 'IN_TRANSIT'] as const);
 
 function SkeletonBox({ width, height }: { width: number | string; height: number }) {
@@ -48,6 +49,7 @@ function TradeRow({ trade }: { trade: Trade }) {
 }
 
 export default function VaultDashboard() {
+  const { contentStyle } = useResponsiveLayout();
   const insets = useSafeAreaInsets();
   const {
     trades,
@@ -179,7 +181,7 @@ export default function VaultDashboard() {
             <Text style={styles.emptyText}>No trades yet</Text>
           </View>
         }
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, contentStyle]}
       />
     </View>
   );

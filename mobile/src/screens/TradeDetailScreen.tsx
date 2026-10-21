@@ -26,9 +26,17 @@ import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
 import { webUrlFor } from '../constants/links';
 import { formatAmount } from '../utils/formatAmount';
+import { guardHighValueAction } from '../services/highValueReauth';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import type { AdminErrorView } from '../api/errors';
 
-type Props = StackScreenProps<RootStackParamList, 'TradeDetail'>;
+type Props = StackScreenProps<RootStackParamList, 'TradeDetail'> & {
+  /**
+   * Rendered as the right-hand pane of the two-column trade list on tablets
+   * (#270): no back button and no top safe-area inset (the list owns them).
+   */
+  embedded?: boolean;
+};
 
 const STATUS_COLORS: Record<TradeStatus, string> = {
   PENDING: '#F59E0B',
@@ -114,9 +122,12 @@ function TradeTimeline({ trade }: { trade: Trade }) {
   );
 }
 
-export default function TradeDetailScreen({ route, navigation }: Props) {
+export default function TradeDetailScreen({ route, navigation, embedded = false }: Props) {
   const { tradeId } = route.params;
   const insets = useSafeAreaInsets();
+  const { contentStyle } = useResponsiveLayout();
+  const topPad = embedded ? 0 : insets.top;
+  const frameStyle = embedded ? undefined : contentStyle;
   const {
     currentTrade,
     isLoading,
@@ -233,6 +244,16 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
           style: 'default',
           onPress: async () => {
             setActionLoading(true);
+            // #269: high-value confirmations need a fresh biometric/passcode check.
+            const gate = await guardHighValueAction(
+              currentTrade?.amountUsdc ?? '',
+              'Confirm this high-value delivery',
+            );
+            if (!gate.ok) {
+              setActionLoading(false);
+              Alert.alert('Re-authentication required', gate.message);
+              return;
+            }
             await confirmDelivery(tradeId);
             await triggerHaptic('success');
             setActionLoading(false);
@@ -240,7 +261,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
         },
       ]
     );
-  }, [tradeId, confirmDelivery]);
+  }, [tradeId, confirmDelivery, currentTrade?.amountUsdc]);
 
   const handleReleaseFunds = useCallback(() => {
     Alert.alert(
@@ -253,6 +274,15 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             setActionLoading(true);
+            const gate = await guardHighValueAction(
+              currentTrade?.amountUsdc ?? '',
+              'Release funds for this high-value trade',
+            );
+            if (!gate.ok) {
+              setActionLoading(false);
+              Alert.alert('Re-authentication required', gate.message);
+              return;
+            }
             await releaseFunds(tradeId);
             await triggerHaptic('warning');
             setActionLoading(false);
@@ -260,7 +290,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
         },
       ]
     );
-  }, [tradeId, releaseFunds]);
+  }, [tradeId, releaseFunds, currentTrade?.amountUsdc]);
 
   const handleDisputeSubmit = useCallback(async () => {
     if (!disputeReason.trim()) {
@@ -316,7 +346,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
 
   if (isLoading && !currentTrade) {
     return (
-      <View style={[styles.center, { paddingTop: insets.top }]}>
+      <View style={[styles.center, { paddingTop: topPad }]}>
         <ActivityIndicator size="large" color="#2d6a2d" />
       </View>
     );
@@ -338,11 +368,15 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
     // Banner wires the same set of hooks as the inline banner below so
     // any action in the map (sign-out, retry, etc.) renders correctly.
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, frameStyle, { paddingTop: topPad }]}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.backText}>← Back</Text>
-          </TouchableOpacity>
+          {embedded ? (
+            <View style={{ width: 60 }} />
+          ) : (
+            <TouchableOpacity onPress={() => navigation.goBack()}>
+              <Text style={styles.backText}>← Back</Text>
+            </TouchableOpacity>
+          )}
           <Text style={styles.headerTitle}>Trade Detail</Text>
           <View style={{ width: 60 }} />
         </View>
@@ -370,12 +404,16 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
   const statusColor = STATUS_COLORS[status] ?? '#6B7280';
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, frameStyle, { paddingTop: topPad }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
+        {embedded ? (
+          <View style={{ width: 60 }} />
+        ) : (
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Text style={styles.backText}>← Back</Text>
+          </TouchableOpacity>
+        )}
         <Text style={styles.headerTitle}>Trade Detail</Text>
         <TouchableOpacity onPress={handleShare} style={{ width: 60, alignItems: 'flex-end' }}>
           <Text style={styles.shareText}>Share</Text>

@@ -6,9 +6,11 @@ import type { RootStackParamList } from '../types/navigation';
 import { SUPPORT_EMAIL } from '../constants/support';
 import { getTheme } from '../constants/theme';
 
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 type Props = StackScreenProps<RootStackParamList, 'About'>;
 
 export default function AboutScreen({ navigation }: Props) {
+  const { contentStyle } = useResponsiveLayout();
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
   const theme = getTheme(scheme);
@@ -38,7 +40,7 @@ export default function AboutScreen({ navigation }: Props) {
         <View style={{ width: 60 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, contentStyle]}>
         <View style={[styles.card, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
           <InfoRow label="App Version" value={version} theme={theme} />
           <InfoRow label="Build Number" value={buildNumber} theme={theme} />

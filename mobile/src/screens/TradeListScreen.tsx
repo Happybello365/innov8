@@ -20,6 +20,8 @@ import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
 import { formatAmount } from '../utils/formatAmount';
 import { getTheme } from '../constants/theme';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
+import TradeDetailScreen from './TradeDetailScreen';
 
 type Props = StackScreenProps<RootStackParamList, 'TradeList'>;
 
@@ -41,13 +43,20 @@ const STATUS_COLORS: Record<TradeStatus, string> = {
   REFUNDED: '#6B7280',
 };
 
-function TradeCard({ trade, onPress }: { trade: Trade; onPress: () => void }) {
+function TradeCard({ trade, onPress, selected = false }: { trade: Trade; onPress: () => void; selected?: boolean }) {
   const statusColor = STATUS_COLORS[trade.status] ?? '#6B7280';
   const shortBuyer = `${trade.buyerAddress.slice(0, 6)}…${trade.buyerAddress.slice(-4)}`;
   const shortSeller = `${trade.sellerAddress.slice(0, 6)}…${trade.sellerAddress.slice(-4)}`;
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity
+      style={[styles.card, selected && styles.cardSelected]}
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      testID={`trade-card-${trade.tradeId}`}
+    >
       <View style={styles.cardRow}>
         <Text style={styles.tradeId}>#{trade.tradeId.slice(0, 8)}</Text>
         <View style={[styles.statusBadge, { backgroundColor: `${statusColor}22` }]}>
@@ -71,6 +80,22 @@ export default function TradeListScreen({ navigation }: Props) {
   const { clearAuth } = useAuthStore();
   const [activeFilter, setActiveFilter] = useState<TradeStatus | 'ALL'>('ALL');
   const [refreshing, setRefreshing] = useState(false);
+  // Two-column list/detail on tablets (#270). On phones the detail is a
+  // separate stack screen, so the selection is only used in wide mode.
+  const { isTwoColumn, listPaneWidth, contentStyle } = useResponsiveLayout();
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
+  const effectiveSelectedId =
+    selectedTradeId && trades.some((t) => t.tradeId === selectedTradeId)
+      ? selectedTradeId
+      : trades[0]?.tradeId ?? null;
+
+  const openTrade = useCallback(
+    (tradeId: string) => {
+      if (isTwoColumn) setSelectedTradeId(tradeId);
+      else navigation.navigate('TradeDetail', { tradeId });
+    },
+    [isTwoColumn, navigation],
+  );
 
   const load = useCallback(
     (status?: TradeStatus | 'ALL') => {
@@ -164,7 +189,15 @@ export default function TradeListScreen({ navigation }: Props) {
         </View>
       ) : null}
 
-      {/* List */}
+      {/* List (left pane on tablets) + detail (right pane) */}
+      <View style={styles.body}>
+      <View
+        style={[
+          isTwoColumn ? { width: listPaneWidth, borderRightWidth: 1, borderRightColor: theme.border } : styles.fill,
+          !isTwoColumn && contentStyle,
+        ]}
+        testID="trade-list-pane"
+      >
       {isLoading && !refreshing ? (
         <View style={[styles.center, { backgroundColor: theme.background }]}>
           <ActivityIndicator size="large" color={theme.primary} />
@@ -185,7 +218,8 @@ export default function TradeListScreen({ navigation }: Props) {
           renderItem={({ item }) => (
             <TradeCard
               trade={item}
-              onPress={() => navigation.navigate('TradeDetail', { tradeId: item.tradeId })}
+              selected={isTwoColumn && item.tradeId === effectiveSelectedId}
+              onPress={() => openTrade(item.tradeId)}
             />
           )}
           ListEmptyComponent={
@@ -201,6 +235,24 @@ export default function TradeListScreen({ navigation }: Props) {
           }
         />
       )}
+      </View>
+      {isTwoColumn ? (
+        <View style={styles.fill} testID="trade-detail-pane">
+          {effectiveSelectedId ? (
+            <TradeDetailScreen
+              key={effectiveSelectedId}
+              embedded
+              route={{ key: `embedded-${effectiveSelectedId}`, name: 'TradeDetail', params: { tradeId: effectiveSelectedId } }}
+              navigation={navigation as unknown as Parameters<typeof TradeDetailScreen>[0]['navigation']}
+            />
+          ) : (
+            <View style={styles.center}>
+              <Text style={[styles.emptyBody, { color: theme.textMuted }]}>Select a trade to see its details.</Text>
+            </View>
+          )}
+        </View>
+      ) : null}
+      </View>
     </View>
   );
 }
@@ -241,6 +293,8 @@ const styles = StyleSheet.create({
   filterLabelActive: { color: '#fff' },
   bannerWrap: { paddingHorizontal: 16, paddingTop: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  body: { flex: 1, flexDirection: 'row' },
+  fill: { flex: 1 },
   listContent: { padding: 16, gap: 12 },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyState: { alignItems: 'center', paddingHorizontal: 32 },
@@ -258,6 +312,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
+  cardSelected: { borderWidth: 2, borderColor: '#2d6a2d' },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   tradeId: { fontSize: 13, color: '#6b7a6b', fontWeight: '600' },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
