@@ -14,7 +14,7 @@ import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
 import { useTradeStore } from '../stores/tradeStore';
 import { StrKey } from '@stellar/stellar-sdk';
-
+
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 // Validation rules mirrored from frontend/src/app/trades/create/validation.ts
 function validateStep1Fields(data: FormData): Record<string, string> {

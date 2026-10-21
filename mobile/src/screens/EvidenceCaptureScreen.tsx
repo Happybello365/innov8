@@ -12,7 +12,7 @@ import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
 import apiClient from '../api/client';
 import { useAuthStore } from '../stores/authStore';
-
+
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 type Props = StackScreenProps<RootStackParamList, 'EvidenceCapture'>;
 

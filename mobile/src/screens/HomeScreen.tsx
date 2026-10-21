@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Linking, Pressable } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { HELP_URL } from '../constants/support';
-
+
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({

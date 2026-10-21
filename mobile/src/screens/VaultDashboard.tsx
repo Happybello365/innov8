@@ -13,7 +13,7 @@ import { useAuthStore } from '../stores/authStore';
 import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
 import type { Trade } from '../types/trade';
-
+
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 const ACTIVE_STATUSES = new Set(['FUNDED', 'IN_TRANSIT'] as const);
 

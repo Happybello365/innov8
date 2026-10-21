@@ -5,7 +5,7 @@ import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
 import { SUPPORT_EMAIL } from '../constants/support';
 import { getTheme } from '../constants/theme';
-
+
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 type Props = StackScreenProps<RootStackParamList, 'About'>;
 

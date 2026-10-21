@@ -11,7 +11,7 @@ import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
 import { useAuthStore } from '../stores/authStore';
 import { authApi } from '../api/auth';
-
+
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 type Props = StackScreenProps<RootStackParamList, 'WalletConnect'>;
 
