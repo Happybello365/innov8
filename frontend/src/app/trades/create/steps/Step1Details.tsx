@@ -61,6 +61,8 @@ export default function Step1Details() {
         <select
           id="commodity"
           value={data.commodity}
+          aria-invalid={Boolean(errors.commodity && touched.commodity)}
+          aria-describedby={errors.commodity && touched.commodity ? "commodity-error" : undefined}
           onChange={(e) => { update({ commodity: e.target.value }); setErrors((prev) => ({ ...prev, commodity: "" })); }}
           onBlur={() => handleBlur("commodity")}
           className="bg-bg-input border border-border-default rounded-md px-4 py-3 text-text-primary focus:outline-none focus:border-border-focus"
@@ -70,7 +72,7 @@ export default function Step1Details() {
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
-        {errors.commodity && touched.commodity && <p role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.commodity}</p>}
+        {errors.commodity && touched.commodity && <p id="commodity-error" role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.commodity}</p>}
       </div>
 
       <div className="flex gap-4">
@@ -82,11 +84,13 @@ export default function Step1Details() {
             min="0"
             placeholder="e.g. 500"
             value={data.quantity}
+            aria-invalid={Boolean(errors.quantity && touched.quantity)}
+            aria-describedby={errors.quantity && touched.quantity ? "quantity-error" : undefined}
             onChange={(e) => { update({ quantity: e.target.value }); setErrors((prev) => ({ ...prev, quantity: "" })); }}
             onBlur={() => handleBlur("quantity")}
             className="bg-bg-input border border-border-default rounded-md px-4 py-3 text-text-primary focus:outline-none focus:border-border-focus"
           />
-          {errors.quantity && touched.quantity && <p role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.quantity}</p>}
+          {errors.quantity && touched.quantity && <p id="quantity-error" role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.quantity}</p>}
         </div>
         <div className="flex flex-col gap-1 w-36">
           <label htmlFor="unit" className="text-sm text-text-secondary">Unit</label>
@@ -112,11 +116,13 @@ export default function Step1Details() {
             min="0"
             placeholder="e.g. 450"
             value={data.pricePerUnit}
+            aria-invalid={Boolean(errors.pricePerUnit && touched.pricePerUnit)}
+            aria-describedby={errors.pricePerUnit && touched.pricePerUnit ? "price-per-unit-error" : undefined}
             onChange={(e) => { update({ pricePerUnit: e.target.value }); setErrors((prev) => ({ ...prev, pricePerUnit: "" })); }}
             onBlur={() => handleBlur("pricePerUnit")}
             className="bg-bg-input border border-border-default rounded-md px-4 py-3 text-text-primary focus:outline-none focus:border-border-focus"
           />
-          {errors.pricePerUnit && touched.pricePerUnit && <p role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.pricePerUnit}</p>}
+          {errors.pricePerUnit && touched.pricePerUnit && <p id="price-per-unit-error" role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.pricePerUnit}</p>}
         </div>
         <div className="flex flex-col gap-1 w-28">
           <label htmlFor="currency" className="text-sm text-text-secondary">Currency</label>
@@ -145,11 +151,13 @@ export default function Step1Details() {
           type="text"
           placeholder="G..."
           value={data.sellerAddress}
+          aria-invalid={Boolean(errors.sellerAddress && touched.sellerAddress)}
+          aria-describedby={errors.sellerAddress && touched.sellerAddress ? "seller-address-error" : undefined}
           onChange={(e) => { update({ sellerAddress: e.target.value.trim() }); setErrors((prev) => ({ ...prev, sellerAddress: "" })); }}
           onBlur={() => handleBlur("sellerAddress")}
           className="bg-bg-input border border-border-default rounded-md px-4 py-3 text-text-primary font-mono text-sm focus:outline-none focus:border-border-focus"
         />
-        {errors.sellerAddress && touched.sellerAddress && <p role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.sellerAddress}</p>}
+        {errors.sellerAddress && touched.sellerAddress && <p id="seller-address-error" role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.sellerAddress}</p>}
       </div>
 
       <button

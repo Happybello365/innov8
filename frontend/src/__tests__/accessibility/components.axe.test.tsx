@@ -45,6 +45,10 @@ describe("Accessibility audit — WCAG 2.1 AA", () => {
         </FormField>
       );
       expect(await axe(container)).toHaveNoViolations();
+      const input = container.querySelector("input")!;
+      const errorId = input.getAttribute("aria-describedby");
+      expect(errorId).toBeTruthy();
+      expect(document.getElementById(errorId!)).toHaveTextContent("Invalid email address");
     });
 
     it("has no axe violations with hint text", async () => {
