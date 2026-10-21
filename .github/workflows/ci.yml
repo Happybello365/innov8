@@ -121,6 +121,54 @@ jobs:
         if: needs.changes.outputs.frontend == 'true'
         run: pnpm build
 
+      - name: Compute bundle size
+        if: needs.changes.outputs.frontend == 'true'
+        id: bundle-size
+        run: |
+          TOTAL=$(find .next/static/chunks -name "*.js" -not -name "*.map" -exec wc -c {} + 2>/dev/null | tail -1 | awk '{print $1}')
+          TOTAL_KB=$(node -e "process.stdout.write((($TOTAL)/1024).toFixed(1))")
+          echo "total_bytes=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "total_kb=${TOTAL_KB}" >> "$GITHUB_OUTPUT"
+
+      - name: Post bundle-size comment
+        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
+        with:
+          script: |
+            const totalKb = '${{ steps.bundle-size.outputs.total_kb }}';
+            const marker = '<!-- bundle-size-report -->';
+            const body = [
+              marker,
+              '## \u{1F4E6} Bundle Size Report',
+              '',
+              `Total JS chunks: **${totalKb} kB**`,
+              '',
+              `> Updated by commit \`${{ github.sha }}\` on \`${{ github.ref_name }}\``,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
       - name: Test
         if: needs.changes.outputs.frontend == 'true'
         # --json writes a machine-readable result file used by the flake reporter
