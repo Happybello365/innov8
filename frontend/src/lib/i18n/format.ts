@@ -9,6 +9,7 @@ import {
   resolveLocale,
   type Locale,
 } from "./config";
+import { getCurrencyConfig, type CurrencyCode } from "../currencies";
 
 type Numeric = number | string | bigint;
 
@@ -30,6 +31,28 @@ export interface MoneyOptions {
   locale?: Locale;
   /** Drop the fraction when the amount is a whole number (e.g. ₦1,200). */
   compactFraction?: boolean;
+}
+
+/**
+ * Format an amount for a specific currency code (NGN, USD, etc.).
+ * Respects the currency's decimal places configuration.
+ */
+export function formatAmount(
+  amount: Numeric,
+  currencyCode: CurrencyCode,
+  options: { locale?: Locale; compactFraction?: boolean } = {},
+): string {
+  const { locale = resolveLocale(), compactFraction = false } = options;
+  const config = getCurrencyConfig(currencyCode);
+  const value = toNumber(amount);
+  const fractionDigits =
+    compactFraction && Number.isInteger(value) ? 0 : config.decimals;
+  return new Intl.NumberFormat(intlLocale(locale), {
+    style: "currency",
+    currency: currencyCode,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: config.decimals,
+  }).format(value);
 }
 
 /** Format a decimal amount as currency. Default: `₦1,234.56`. */

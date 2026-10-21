@@ -117,13 +117,28 @@ export default function TradeListScreen({ navigation }: Props) {
       <View style={[styles.header, { backgroundColor: theme.headerBg, borderBottomColor: theme.border }]}>
         <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>🌾 Trades</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity onPress={() => navigation.navigate('NotificationsInbox')}>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('NotificationsInbox')}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="View notifications"
+          >
             <Text style={[styles.createBtnText, { color: theme.primary }]}>🔔</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('CreateTrade')}>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('CreateTrade')}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Create new trade"
+          >
             <Text style={[styles.createBtnText, { color: theme.primary }]}>+ New</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('About')}>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('About')}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Open about information"
+          >
             <Text style={[styles.createBtnText, { color: theme.primary }]}>ⓘ</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={handleLogout}>
