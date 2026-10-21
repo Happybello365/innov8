@@ -16,6 +16,7 @@ import {
 } from "../services/trade.service";
 import { AppError, ErrorCode } from "../errors/errorCodes";
 import { PilotTradeCapService, pilotTradeCapService } from "../services/pilot-trade-cap.service";
+import { FraudSignalService, fraudSignalService } from "../services/fraudSignal.service";
 import { getMediatorAllowlist } from "../lib/accessControl";
 
 const AMOUNT_USDC_PATTERN = /^\d+(?:\.\d{1,7})?$/;
@@ -52,6 +53,7 @@ export class TradeController {
     private readonly tradeService: TradeService = new TradeService(),
     private readonly contractService: ContractService = new ContractService(),
     private readonly pilotTradeCap: Pick<PilotTradeCapService, "assertWithinCap"> = pilotTradeCapService,
+    private readonly fraudSignal: Pick<FraudSignalService, "check"> = fraudSignalService,
   ) {}
 
   public createTrade = async (
@@ -105,6 +107,13 @@ export class TradeController {
           400,
         );
       }
+
+      // Fraud-signal hook (#210): runs after the pilot cap so low-value trades skip it.
+      await this.fraudSignal.check({
+        buyerAddress,
+        sellerAddress,
+        amountUsdc: normalizedAmountUsdc,
+      });
 
       const { tradeId, unsignedXdr } =
         await this.contractService.buildCreateTradeTx({
