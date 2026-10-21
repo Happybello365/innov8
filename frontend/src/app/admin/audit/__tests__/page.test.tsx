@@ -5,6 +5,11 @@ import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { api, ApiError } from "@/lib/api";
 import { trackAdminEvent } from "@/lib/analytics";
 
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/admin/audit",
+  useRouter: () => ({ replace: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 jest.mock("@/hooks/useAuth");
 jest.mock("@/hooks/useIsAdmin");
 jest.mock("@/lib/analytics", () => ({
