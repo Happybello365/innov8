@@ -56,7 +56,7 @@ export function TradeListItem({
           onView();
         }
       }}
-      className="flex items-center justify-between p-4 bg-card border border-border-default rounded-lg mb-3 hover:border-gold/30 hover:bg-elevated transition-colors cursor-pointer group focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
+      className="flex items-center justify-between p-4 bg-card border border-border-default rounded-lg mb-3 hover:border-gold/30 hover:bg-elevated transition-colors cursor-pointer group focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
     >
       {/* Left — commodity + meta */}
       <div className="flex flex-col gap-1 min-w-0">
@@ -104,7 +104,7 @@ export function TradeListItem({
             }}
             aria-label={`View trade ${tradeId}`}
             title="View trade"
-            className="p-2 rounded-lg border border-border-default text-text-muted hover:border-border-hover hover:text-text-primary transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
+            className="p-2 rounded-lg border border-border-default text-text-muted hover:border-border-hover hover:text-text-primary transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
           >
             <Eye aria-hidden="true" className="w-4 h-4" />
           </button>
@@ -117,7 +117,7 @@ export function TradeListItem({
               }}
               aria-label={`Deposit for trade ${tradeId}`}
               title="Deposit"
-              className="p-2 rounded-lg border border-border-default text-text-muted hover:border-emerald/40 hover:text-emerald transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
+              className="p-2 rounded-lg border border-border-default text-text-muted hover:border-emerald/40 hover:text-emerald transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
             >
               <ArrowDownToLine aria-hidden="true" className="w-4 h-4" />
             </button>
@@ -131,7 +131,7 @@ export function TradeListItem({
               }}
               aria-label={`Withdraw for trade ${tradeId}`}
               title="Withdraw"
-              className="p-2 rounded-lg border border-border-default text-text-muted hover:border-status-danger/40 hover:text-status-danger transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
+              className="p-2 rounded-lg border border-border-default text-text-muted hover:border-status-danger/40 hover:text-status-danger transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
             >
               <ArrowUpFromLine aria-hidden="true" className="w-4 h-4" />
             </button>
