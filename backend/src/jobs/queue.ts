@@ -148,3 +148,12 @@ export const webhookPurgeQueue = new Queue<WebhookPurgeJobData>('webhook-purge',
   connection: createQueueConnection(),
   defaultJobOptions,
 });
+
+export interface TreasuryReconciliationJobData {
+  triggeredBy?: string;
+}
+
+export const treasuryReconciliationQueue = new Queue<TreasuryReconciliationJobData>('treasury-reconciliation', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
