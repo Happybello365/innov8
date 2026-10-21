@@ -71,7 +71,7 @@ function SaveAsTemplate() {
           type="button"
           data-testid="save-template-btn"
           onClick={() => setExpanded(true)}
-          className="text-sm text-text-secondary hover:text-text-primary flex items-center gap-1.5 transition-colors"
+          className="text-sm text-text-secondary hover:text-text-primary flex items-center gap-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
@@ -98,21 +98,21 @@ function SaveAsTemplate() {
             value={templateName}
             onChange={(e) => setTemplateName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSave()}
-            className="bg-bg-input border border-border-default rounded-md px-4 py-2.5 text-text-primary text-sm focus:outline-none focus:border-border-focus"
+            className="bg-bg-input border border-border-default rounded-md px-4 py-2.5 text-text-primary text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={handleSave}
               disabled={saving || !templateName.trim()}
-              className="flex-1 h-9 rounded-full bg-gradient-gold-cta text-text-inverse text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex-1 h-9 rounded-full bg-gradient-gold-cta text-text-inverse text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
             >
               {saving ? "Saving..." : "Save"}
             </button>
             <button
               type="button"
               onClick={handleCancel}
-              className="flex-1 h-9 rounded-full border border-border-default text-text-secondary text-sm hover:border-border-hover transition-colors"
+              className="flex-1 h-9 rounded-full border border-border-default text-text-secondary text-sm hover:border-border-hover transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
             >
               Cancel
             </button>
@@ -372,7 +372,9 @@ export default function Step3Review() {
       </div>
 
       {error && (
-        <p role="alert" aria-live="polite" className="text-status-danger text-sm text-center">{error}</p>
+        <p role="alert" aria-live="assertive" className="text-status-danger text-sm text-center bg-status-danger/10 border border-status-danger/30 rounded-lg px-4 py-3">
+          <span className="mr-2">⚠</span>{error}
+        </p>
       )}
       {pendingCount > 0 && (
         <div className="rounded-lg bg-status-warning/10 border border-status-warning/30 px-4 py-3 flex items-center justify-between">
@@ -393,14 +395,16 @@ export default function Step3Review() {
         <button
           disabled={loading}
           onClick={() => setStep(2)}
-          className="flex-1 h-12 rounded-full border border-border-default text-text-secondary hover:border-border-hover transition-colors disabled:opacity-40"
+          className="flex-1 h-12 rounded-full border border-border-default text-text-secondary hover:border-border-hover transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+          aria-label="Go back to Step 2: Negotiation Terms"
         >
           Back
         </button>
         <button
           disabled={loading || !isFormValid}
           onClick={() => setShowDisclaimer(true)}
-          className="flex-1 h-12 rounded-full bg-gradient-gold-cta text-text-inverse font-semibold disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="flex-1 h-12 rounded-full bg-gradient-gold-cta text-text-inverse font-semibold disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+          aria-label={loading ? "Creating trade, please wait" : "Lock funds and create trade"}
         >
           {loading ? (
             <>
