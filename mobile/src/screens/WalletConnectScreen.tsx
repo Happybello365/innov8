@@ -71,6 +71,7 @@ export default function WalletConnectScreen({ navigation }: Props) {
           style={[styles.button, connecting && styles.buttonDisabled]}
           onPress={handleConnect}
           disabled={connecting}
+          testID="connect-wallet-button"
         >
           {connecting ? (
             <ActivityIndicator color="#fff" />

@@ -12,6 +12,8 @@ import DisputeDetailScreen from '../screens/DisputeDetailScreen';
 import CreateTradeScreen from '../screens/CreateTradeScreen';
 import EvidenceCaptureScreen from '../screens/EvidenceCaptureScreen';
 import VaultDashboard from '../screens/VaultDashboard';
+import GoalContributionHistoryScreen from '../screens/GoalContributionHistoryScreen';
+import ReputationHistoryScreen from '../screens/ReputationHistoryScreen';
 import NotificationsInboxScreen from '../screens/NotificationsInboxScreen';
 import AboutScreen from '../screens/AboutScreen';
 import { useDeepLink } from '../hooks/useDeepLink';
@@ -120,6 +122,8 @@ export function AppNavigator({ isAuthenticated, isAdmin = false }: AppNavigatorP
         <Stack.Screen name="CreateTrade" component={CreateTradeScreen} />
         <Stack.Screen name="EvidenceCapture" component={EvidenceCaptureScreen} />
         <Stack.Screen name="VaultDashboard" component={VaultDashboard} />
+        <Stack.Screen name="GoalContributionHistory" component={GoalContributionHistoryScreen} />
+        <Stack.Screen name="ReputationHistory" component={ReputationHistoryScreen} />
         {isAdmin && (
           <Suspense
             fallback={

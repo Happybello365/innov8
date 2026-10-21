@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { AppState, AppStateStatus } from 'react-native';
 import { tradeApi } from '../api/trade';
 import type { Trade } from '../types/trade';
+import { useOfflineQueueStore } from '../stores/offlineQueueStore';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -95,6 +96,20 @@ export const offlineService = {
     } else {
       return this.getCachedTrades();
     }
+  },
+
+  // Offline action queue: per-action status lives in offlineQueueStore so the
+  // UI can show pending/succeeded/failed and retry a single item.
+  queueAction(label: string, run: () => Promise<unknown>): string {
+    return useOfflineQueueStore.getState().enqueue(label, run);
+  },
+
+  retryQueuedAction(id: string): Promise<void> {
+    return useOfflineQueueStore.getState().retry(id);
+  },
+
+  flushQueue(): Promise<void> {
+    return useOfflineQueueStore.getState().flush();
   },
 
   // Set up listeners for app foregrounding to trigger auto-sync
