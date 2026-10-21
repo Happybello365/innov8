@@ -12,7 +12,8 @@ import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
 import apiClient from '../api/client';
 import { useAuthStore } from '../stores/authStore';
-
+
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 type Props = StackScreenProps<RootStackParamList, 'EvidenceCapture'>;
 
 type MediaType = 'video' | 'photo';
@@ -25,6 +26,7 @@ interface CapturedMedia {
 }
 
 export default function EvidenceCaptureScreen({ route, navigation }: Props) {
+  const { contentStyle } = useResponsiveLayout();
   const { tradeId } = route.params;
   const insets = useSafeAreaInsets();
   const { token } = useAuthStore();
@@ -146,7 +148,7 @@ export default function EvidenceCaptureScreen({ route, navigation }: Props) {
         <View style={{ width: 60 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, contentStyle]}>
         <Text style={styles.tradeRef}>Trade: #{tradeId.slice(0, 12)}…</Text>
 
         {/* Success state */}
