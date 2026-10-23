@@ -24,6 +24,7 @@ The gas suite measures the Amana escrow hot paths that are most likely to affect
 | `resolve_dispute` | 8,000,000 | 4,000,000 | Mediator authorization, payout BPS calculation, token transfer(s), dispute record update |
 | `admin_clawback` | 6,000,000 | 3,500,000 | Admin auth check, Stellar asset token refund transfer to buyer, status update to `Cancelled`, release sequence update, event emission |
 | `repeated_partial_clawback` (5x) | 25,000,000 | 15,000,000 | 5 sequential partial `admin_clawback` calls: admin auth + feature-flag check, token transfer, `ClawbackTotal` read/write, and trade-record write per call |
+| `list_mediators` (5 mediators) | 5,000,000 | 3,000,000 | One list read from persistent storage plus one `MediatorWeight` read per registered mediator; cost grows linearly with registry size (Issue #274) |
 
 ### Repeated clawback benchmarking (Issue #110)
 
