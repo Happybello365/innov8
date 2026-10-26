@@ -47,7 +47,7 @@ function TradeCard({ trade, onPress }: { trade: Trade; onPress: () => void }) {
   const shortSeller = `${trade.sellerAddress.slice(0, 6)}…${trade.sellerAddress.slice(-4)}`;
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75} testID={`trade-card-${trade.tradeId.slice(0, 8)}`}>
       <View style={styles.cardRow}>
         <Text style={styles.tradeId}>#{trade.tradeId.slice(0, 8)}</Text>
         <View style={[styles.statusBadge, { backgroundColor: `${statusColor}22` }]}>
@@ -121,13 +121,13 @@ export default function TradeListScreen({ navigation }: Props) {
             <Text style={[styles.createBtnText, { color: theme.primary }]}>🔔</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('CreateTrade')}>
-            <Text style={[styles.createBtnText, { color: theme.primary }]}>+ New</Text>
+            <Text style={[styles.createBtnText, { color: theme.primary }]} testID="new-trade-btn">+ New</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('About')}>
             <Text style={[styles.createBtnText, { color: theme.primary }]}>ⓘ</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={handleLogout}>
-            <Text style={[styles.logoutText, { color: theme.textMuted }]}>Logout</Text>
+            <Text style={[styles.logoutText, { color: theme.textMuted }]} testID="logout-btn">Logout</Text>
           </TouchableOpacity>
         </View>
       </View>

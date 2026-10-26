@@ -4,6 +4,7 @@ import {
   View,
   Text,
   FlatList,
+  ScrollView,
   RefreshControl,
   StyleSheet,
 } from 'react-native';
@@ -104,7 +105,15 @@ export default function VaultDashboard() {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Vault Dashboard</Text>
         </View>
-        <LoadingSkeleton />
+        {/* Wrap in ScrollView so the user can pull-to-refresh even during
+            the initial skeleton load (mirrors TradeListScreen pattern). */}
+        <ScrollView
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2d6a2d" />
+          }
+        >
+          <LoadingSkeleton />
+        </ScrollView>
       </View>
     );
   }
