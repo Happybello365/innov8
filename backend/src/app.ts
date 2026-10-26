@@ -5,7 +5,7 @@ import { errorHandler } from "./middleware/errorHandler";
 import { correlationIdMiddleware } from "./middleware/correlationId.middleware";
 import { tracingMiddleware } from "./middleware/tracing.middleware";
 import loggerMiddleware, { appLogger } from "./middleware/logger";
-import { requestIdMiddleware } from "./middleware/requestId";
+import { bodyParsers } from "./middleware/bodyLimits";
 import { requestLoggerMiddleware } from "./middleware/request.logger.middleware";
 import { createHealthRouter } from "./routes/health.routes";
 import { createHealthDetailRouter } from "./routes/health.detail.routes";
@@ -20,6 +20,7 @@ import { webhooksRoutes } from "./routes/webhooks.routes";
 import { inboundWebhooksRoutes } from "./routes/webhooks.inbound.routes";
 import { captureRawBody } from "./middleware/webhookSignature.middleware";
 import { createAdminDlqRouter } from "./routes/admin.dlq.routes";
+import { createAdminReportRouter } from "./routes/admin.report.routes";
 import { adminFeatureGate } from "./middleware/adminFeatureGate.middleware";
 import { env } from "./config/env";
 import { csrfProtection } from "./middleware/csrf.middleware";
@@ -33,7 +34,7 @@ import {
 
 /** Parse the CORS_ORIGINS env var into a usable allowlist.
  *  Value should be a comma-separated list of allowed origins, e.g.:
- *    CORS_ORIGINS=https://app.amana.com,https://staging.amana.com
+ *    CORS_ORIGINS=https://app.innov8.com,https://staging.innov8.com
  *  Leave empty in development to allow all origins.
  */
 function buildCorsOptions(): cors.CorsOptions {
@@ -94,12 +95,12 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
   // Environment-driven CORS
   app.use(cors(buildCorsOptions()));
 
-  // Body size limits: 100 KB for JSON, 5 MB for URL-encoded (covers file references)
+  // Per-route body size limits: a small default everywhere, raised only on the
+  // routes listed in middleware/bodyLimits.ts. Oversized payloads get a 413.
   // `verify` stashes the exact received bytes on the request: inbound webhook
   // signatures cover the raw payload, and re-serialising `req.body` would not
   // reproduce it byte for byte.
-  app.use(express.json({ limit: "100kb", verify: captureRawBody }));
-  app.use(express.urlencoded({ extended: true, limit: "5mb" }));
+  app.use(bodyParsers({ verify: captureRawBody }));
 
   // Correlation ID must be registered before the logger so every log line
   // produced by pino-http already carries the tracing IDs.
@@ -146,7 +147,7 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
   // Admin trade batch operations: POST /admin/trades/batch/status
   app.use(adminFeatureGate, csrfProtection, createAdminTradeBatchRouter());
 
-  // Admin payout idempotency: POST /api/admin/payouts/reconcile, GET /api/admin/payouts/pending
+  // Admin payout idempotency: GET /api/admin/payouts, POST /api/admin/payouts/reconcile, GET /api/admin/payouts/pending
   app.use(adminFeatureGate, csrfProtection, createAdminPayoutsRouter());
 
   // Admin stream management: POST /api/admin/streams/:id/clawback/preview, POST /api/admin/streams/:id/suspend, POST /api/admin/streams/:id/resume
@@ -167,6 +168,8 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
 
   // Admin dead-letter queue inspection/replay: GET /api/admin/dlq/:queue, POST /api/admin/dlq/:queue/:jobId/replay
   app.use(adminFeatureGate, csrfProtection, createAdminDlqRouter());
+  // Admin cross-entity reporting: POST /api/admin/reports/query, /api/admin/reports/saved
+  app.use(adminFeatureGate, csrfProtection, createAdminReportRouter());
 
   // Error handler is registered last so it catches errors from all routes,
   // including any routes added to the app after createApp() returns.

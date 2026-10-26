@@ -1,4 +1,4 @@
-#!/usr/bin/env ts-node
+#!/usr/bin/env tsx
 /**
  * check-flag-catalog-drift.ts
  *
@@ -25,7 +25,7 @@
  *  3. Optionally add it to the backend's seed/init script.
  *
  * Usage:
- *   npx ts-node --project tsconfig.json scripts/check-flag-catalog-drift.ts
+ *   npx tsx scripts/check-flag-catalog-drift.ts
  *
  * Exit codes:
  *   0 — catalogs are in sync (or backend has subset of frontend flags)

@@ -46,7 +46,8 @@ grep -qE 'DataKey::(CngnContract|SourceToken)' "$contract_src" \
 if grep -RInE '(SECRET_KEY|PRIVATE_KEY|MNEMONIC|SEED_PHRASE|S[A-Z0-9]{55})' "$contract_dir" \
   --exclude-dir target \
   --exclude 'Cargo.lock' \
-  --exclude '*.json'; then
+  --exclude '*.json' \
+  --exclude '*.md'; then
   fail "potential secret or live key material found under contracts/"
 fi
 

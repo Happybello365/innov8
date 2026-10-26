@@ -18,4 +18,12 @@ export type RootStackParamList = {
     streamId: string;
     timestamp: string;
   };
+  /** #88 — in-app notifications inbox */
+  NotificationsInbox: undefined;
+  /** #92 — app version and build info */
+  About: undefined;
+  /** #260 — notification preferences (quiet hours) */
+  NotificationPreferences: undefined;
+  /** #258 — biometric lock settings */
+  SecuritySettings: undefined;
 };

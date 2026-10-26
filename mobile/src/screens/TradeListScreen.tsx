@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Linking,
+  useColorScheme,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StackScreenProps } from '@react-navigation/stack';
@@ -17,6 +18,8 @@ import { useTradeStore } from '../stores/tradeStore';
 import { useAuthStore } from '../stores/authStore';
 import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
+import { formatAmount } from '../utils/formatAmount';
+import { getTheme } from '../constants/theme';
 
 type Props = StackScreenProps<RootStackParamList, 'TradeList'>;
 
@@ -38,20 +41,31 @@ const STATUS_COLORS: Record<TradeStatus, string> = {
   REFUNDED: '#6B7280',
 };
 
+// Labels must match web StatusBadge copy verbatim (issue #249).
+const STATUS_LABELS: Record<TradeStatus, string> = {
+  PENDING: 'Pending',
+  FUNDED: 'Funded',
+  IN_TRANSIT: 'In Transit',
+  DELIVERED: 'Delivered',
+  DISPUTED: 'Disputed',
+  COMPLETED: 'Completed',
+  REFUNDED: 'Refunded',
+};
+
 function TradeCard({ trade, onPress }: { trade: Trade; onPress: () => void }) {
   const statusColor = STATUS_COLORS[trade.status] ?? '#6B7280';
   const shortBuyer = `${trade.buyerAddress.slice(0, 6)}…${trade.buyerAddress.slice(-4)}`;
   const shortSeller = `${trade.sellerAddress.slice(0, 6)}…${trade.sellerAddress.slice(-4)}`;
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75} testID={`trade-card-${trade.tradeId.slice(0, 8)}`}>
       <View style={styles.cardRow}>
         <Text style={styles.tradeId}>#{trade.tradeId.slice(0, 8)}</Text>
         <View style={[styles.statusBadge, { backgroundColor: `${statusColor}22` }]}>
-          <Text style={[styles.statusText, { color: statusColor }]}>{trade.status}</Text>
+          <Text style={[styles.statusText, { color: statusColor }]}>{STATUS_LABELS[trade.status] ?? trade.status}</Text>
         </View>
       </View>
-      <Text style={styles.amount}>{trade.amountUsdc} USDC</Text>
+      <Text style={styles.amount}>{formatAmount(trade.amountUsdc, 'USDC')} USDC</Text>
       <View style={styles.cardRow}>
         <Text style={styles.addressLabel}>Buyer: <Text style={styles.address}>{shortBuyer}</Text></Text>
         <Text style={styles.addressLabel}>Seller: <Text style={styles.address}>{shortSeller}</Text></Text>
@@ -62,6 +76,8 @@ function TradeCard({ trade, onPress }: { trade: Trade; onPress: () => void }) {
 
 export default function TradeListScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme);
   const { trades, isLoading, errorView, fetchTrades, clearErrorView } = useTradeStore();
   const { clearAuth } = useAuthStore();
   const [activeFilter, setActiveFilter] = useState<TradeStatus | 'ALL'>('ALL');
@@ -81,8 +97,11 @@ export default function TradeListScreen({ navigation }: Props) {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchTrades(activeFilter === 'ALL' ? undefined : { status: activeFilter });
-    setRefreshing(false);
+    try {
+      await fetchTrades(activeFilter === 'ALL' ? undefined : { status: activeFilter });
+    } finally {
+      setRefreshing(false);
+    }
   }, [activeFilter, fetchTrades]);
 
   const handleFilterChange = (value: TradeStatus | 'ALL') => {
@@ -104,16 +123,22 @@ export default function TradeListScreen({ navigation }: Props) {
   }, [visibleErrorView]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.background }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>🌾 Trades</Text>
+      <View style={[styles.header, { backgroundColor: theme.headerBg, borderBottomColor: theme.border }]}>
+        <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>🌾 Trades</Text>
         <View style={styles.headerActions}>
+          <TouchableOpacity onPress={() => navigation.navigate('NotificationsInbox')}>
+            <Text style={[styles.createBtnText, { color: theme.primary }]}>🔔</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('CreateTrade')}>
-            <Text style={styles.createBtnText}>+ New</Text>
+            <Text style={[styles.createBtnText, { color: theme.primary }]} testID="new-trade-btn">+ New</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate('About')}>
+            <Text style={[styles.createBtnText, { color: theme.primary }]}>ⓘ</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={handleLogout}>
-            <Text style={styles.logoutText}>Logout</Text>
+            <Text style={[styles.logoutText, { color: theme.textMuted }]} testID="logout-btn">Logout</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -152,15 +177,22 @@ export default function TradeListScreen({ navigation }: Props) {
 
       {/* List */}
       {isLoading && !refreshing ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#2d6a2d" />
+        <View style={[styles.center, { backgroundColor: theme.background }]}>
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
       ) : (
         <FlatList
           data={trades}
           keyExtractor={(item) => item.tradeId}
           contentContainerStyle={trades.length === 0 ? styles.emptyContainer : styles.listContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2d6a2d" />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#2d6a2d"
+              colors={['#2d6a2d']}
+            />
+          }
           renderItem={({ item }) => (
             <TradeCard
               trade={item}
@@ -221,26 +253,27 @@ const styles = StyleSheet.create({
   bannerWrap: { paddingHorizontal: 16, paddingTop: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { padding: 16, gap: 12 },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
-  emptyState: { alignItems: 'center' },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyState: { alignItems: 'center', paddingHorizontal: 32 },
   emptyIcon: { fontSize: 48, marginBottom: 12 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: '#1a3a1a', marginBottom: 8 },
-  emptyBody: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 22 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1a3a1a', marginBottom: 6 },
+  emptyBody: { fontSize: 14, color: '#6b7a6b', textAlign: 'center' },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
     gap: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  tradeId: { fontSize: 13, color: '#888', fontFamily: 'monospace' },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
-  statusText: { fontSize: 11, fontWeight: '600' },
+  tradeId: { fontSize: 13, color: '#6b7a6b', fontWeight: '600' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  statusText: { fontSize: 11, fontWeight: '700' },
   amount: { fontSize: 20, fontWeight: '700', color: '#1a3a1a' },
-  addressLabel: { fontSize: 12, color: '#888' },
-  address: { color: '#2d6a2d', fontFamily: 'monospace' },
+  addressLabel: { fontSize: 12, color: '#6b7a6b' },
+  address: { color: '#1a3a1a', fontWeight: '600' },
 });

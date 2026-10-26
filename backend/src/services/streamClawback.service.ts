@@ -50,7 +50,7 @@ export class StreamClawbackService {
     // If Redis SET fails due to race (NX fails), we keep lock and treat as success since in-memory already protects this pod.
     // If Redis op errors, we remain holding in-memory and log; the lock will be released via TTL + release()
     void redis
-      .set(redisKey(streamId), "1", "NX", "EX", REDIS_CLAWBACK_TTL_SECONDS)
+      .set(redisKey(streamId), "1", "EX", REDIS_CLAWBACK_TTL_SECONDS, "NX")
       .then((result) => {
         if (result !== "OK") {
           // Redis indicates another pod holds lock — we already added to local set, so we are actually double-holding
@@ -79,7 +79,7 @@ export class StreamClawbackService {
       );
     }
     try {
-      const result = await redis.set(redisKey(streamId), "1", "NX", "EX", REDIS_CLAWBACK_TTL_SECONDS);
+      const result = await redis.set(redisKey(streamId), "1", "EX", REDIS_CLAWBACK_TTL_SECONDS, "NX");
       if (result !== "OK") {
         throw new AppError(
           ErrorCode.DOMAIN_ERROR,
@@ -91,6 +91,13 @@ export class StreamClawbackService {
       activeClawbacks.add(streamId);
     } catch (err) {
       if (err instanceof AppError) throw err;
+      // Redis itself is unreachable/erroring (not just "someone else holds the
+      // lock") — we can't verify no one else holds it either, so fail closed
+      // by reserving the in-memory lock too. This blocks further acquireAsync
+      // (409) and isLockedAsync (true) calls for this stream until an operator
+      // explicitly releases it or the process restarts, preventing a second
+      // attempt from racing in behind an unverifiable distributed lock.
+      activeClawbacks.add(streamId);
       appLogger.error({ err, streamId }, "Clawback distributed lock unavailable — failing closed");
       throw new AppError(
         ErrorCode.DOMAIN_ERROR,

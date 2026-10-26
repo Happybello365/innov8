@@ -20,9 +20,9 @@
     "test:e2e:build:android": "detox build --configuration android.emu.debug"
   },
   "dependencies": {
+    "@react-native-community/netinfo": "~11.4.1",
     "@react-navigation/native": "^6.1.17",
     "@react-navigation/stack": "^6.3.29",
-    "@react-native-community/netinfo": "~11.4.1",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^14.6.1",
     "@testing-library/jest-native": "^5.4.3",
@@ -30,6 +30,8 @@
     "axios": "^1.6.8",
     "expo": "^52.0.0",
     "expo-device": "^6.0.2",
+    "expo-haptics": "~13.0.1",
+    "expo-local-authentication": "~15.0.2",
     "expo-notifications": "^0.28.0",
     "expo-secure-store": "^13.0.2",
     "expo-sqlite": "15.0.3",
@@ -43,9 +45,9 @@
   "devDependencies": {
     "@eslint/js": "^8.57.1",
     "@expo/config-plugins": "^8.0.8",
+    "@testing-library/react-native": "^12.9.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.10.0",
-    "@testing-library/react-native": "^12.9.0",
     "@types/react": "^18.3.3",
     "@types/react-native": "^0.73.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",

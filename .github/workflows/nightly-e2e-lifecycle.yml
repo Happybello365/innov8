@@ -24,20 +24,20 @@ jobs:
       flake_status: ${{ steps.flake-check.outputs.flake_status }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: 22
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable
         with:
           targets: wasm32-unknown-unknown
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
 
       # ── Contract Build ──────────────────────────────────────────────────
       - name: Build WASM contract
@@ -104,8 +104,8 @@ jobs:
           PASS_COUNT=$(grep -c "✓\|PASS\|passed" /tmp/e2e-output.log 2>/dev/null || echo "0")
           FAIL_COUNT=$(grep -c "✗\|FAIL\|failed" /tmp/e2e-output.log 2>/dev/null || echo "0")
 
-          echo "pass_count=$PASS_COUNT" >> $GITHUB_OUTPUT
-          echo "fail_count=$FAIL_COUNT" >> $GITHUB_OUTPUT
+          echo "pass_count=$PASS_COUNT" >> "$GITHUB_OUTPUT"
+          echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
 
           if [ $EXIT_CODE -ne 0 ]; then
             echo "⚠️  E2E tests had failures (exit code: $EXIT_CODE)"
@@ -139,10 +139,10 @@ jobs:
           done
 
           if [ "$FLAKE_FOUND" = true ]; then
-            echo "flake_status=quarantined" >> $GITHUB_OUTPUT
+            echo "flake_status=quarantined" >> "$GITHUB_OUTPUT"
             echo "⚠️  Potential flaky test detected — quarantining"
           else
-            echo "flake_status=clean" >> $GITHUB_OUTPUT
+            echo "flake_status=clean" >> "$GITHUB_OUTPUT"
             echo "✅ No flake patterns detected"
           fi
 
@@ -159,20 +159,22 @@ jobs:
           fi
 
           # Generate tx link summary
-          echo "# E2E Trade Lifecycle — Testnet Run" > /tmp/e2e-artifacts/SUMMARY.md
-          echo "" >> /tmp/e2e-artifacts/SUMMARY.md
-          echo "**Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /tmp/e2e-artifacts/SUMMARY.md
-          echo "**Network:** Stellar Testnet" >> /tmp/e2e-artifacts/SUMMARY.md
-          echo "**RPC:** $STELLAR_RPC_URL" >> /tmp/e2e-artifacts/SUMMARY.md
-          echo "" >> /tmp/e2e-artifacts/SUMMARY.md
-          echo "## Test Output" >> /tmp/e2e-artifacts/SUMMARY.md
-          echo '```' >> /tmp/e2e-artifacts/SUMMARY.md
-          tail -100 /tmp/e2e-output.log >> /tmp/e2e-artifacts/SUMMARY.md 2>/dev/null || true
-          echo '```' >> /tmp/e2e-artifacts/SUMMARY.md
+          {
+            echo "# E2E Trade Lifecycle — Testnet Run"
+            echo ""
+            echo "**Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "**Network:** Stellar Testnet"
+            echo "**RPC:** $STELLAR_RPC_URL"
+            echo ""
+            echo "## Test Output"
+            echo '```'
+            tail -100 /tmp/e2e-output.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/e2e-artifacts/SUMMARY.md
 
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: e2e-lifecycle-artifacts
           path: /tmp/e2e-artifacts/
@@ -182,21 +184,26 @@ jobs:
       - name: Post summary
         if: always()
         run: |
-          echo "## Nightly E2E Trade Lifecycle — Testnet" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Date | $(date -u +%Y-%m-%d) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Network | Stellar Testnet |" >> $GITHUB_STEP_SUMMARY
-          echo "| Passes | ${{ steps.run-tests.outputs.pass_count || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failures | ${{ steps.run-tests.outputs.fail_count || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Flake Status | ${{ steps.flake-check.outputs.flake_status || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          FAIL_COUNT="${{ steps.run-tests.outputs.fail_count || '0' }}"
+          {
+            echo "## Nightly E2E Trade Lifecycle — Testnet"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Date | $(date -u +%Y-%m-%d) |"
+            echo "| Network | Stellar Testnet |"
+            echo "| Passes | ${{ steps.run-tests.outputs.pass_count || 'N/A' }} |"
+            echo "| Failures | ${{ steps.run-tests.outputs.fail_count || 'N/A' }} |"
+            echo "| Flake Status | ${{ steps.flake-check.outputs.flake_status || 'N/A' }} |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "${{ steps.run-tests.outputs.fail_count || '0' }}" -gt "0" ]; then
-            echo "### ⚠️ Failures Detected" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Check the [artifacts](../actions) for detailed logs and tx links." >> $GITHUB_STEP_SUMMARY
+          if [ "$FAIL_COUNT" -gt "0" ]; then
+            {
+              echo "### ⚠️ Failures Detected"
+              echo ""
+              echo "Check the [artifacts](../actions) for detailed logs and tx links."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### ✅ All Clear" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ All Clear" >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -8,10 +8,13 @@ import { env, runtimeEnvValue } from '../config/env';
 import { redis } from '../lib/redis';
 import { prisma } from '../lib/db';
 import { AdminSessionService } from './adminSession.service';
+import { appLogger } from '../middleware/logger';
 
 const CHALLENGE_PREFIX = 'challenge:';
 const REVOKED_PREFIX = 'revoked_jti:';
 const TOKEN_VERSION_PREFIX = 'token_version:';
+const REVOKED_FAMILY_PREFIX = 'revoked_family:';
+const ROTATED_PREFIX = 'rotated_jti:';
 const CHALLENGE_TTL = 300; // 5 min
 const AUTH_FAILURE_PREFIX = 'auth:challenge-failures:';
 const AUTH_LOCKOUT_THRESHOLD = 5;
@@ -22,6 +25,10 @@ const AUTH_LOCKOUT_SECONDS = 15 * 60;
 // path deliberately narrower than normal JWT validation.
 const REFRESH_EXPIRY_GRACE_SECONDS = 15 * 60;
 const REFRESH_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+// Two legitimate refreshes racing with the same token (e.g. two browser tabs)
+// land within a few seconds of each other. Inside this window the loser is
+// rejected without treating it as theft; outside it, reuse revokes the family.
+const REFRESH_REUSE_GRACE_SECONDS = 10;
 
 export interface JWTPayload {
   sub: string;
@@ -29,6 +36,8 @@ export interface JWTPayload {
   jti: string;
   /** Token generation this JWT was issued against — see AuthService.bumpTokenVersion. */
   tv: number;
+  /** Refresh-token family id; preserved across rotations. Absent on legacy tokens (jti is used). */
+  fid?: string;
   iat?: number;
   exp?: number;
   iss?: string;
@@ -52,13 +61,17 @@ export interface AuthRequest extends Request {
 
 export class AuthService {
   static async generateChallenge(walletAddress: string): Promise<string> {
+    // Validate the raw input first (Stellar SDK requires the canonical
+    // uppercase Base32 form), then normalise for all storage and lookups so
+    // that mixed-case submissions always resolve to the same record.
     if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid Stellar public key', 400);
     }
+    const normalizedAddress = walletAddress.trim().toLowerCase();
 
     try {
       const challenge = crypto.randomBytes(32).toString('base64url');
-      const key = `${CHALLENGE_PREFIX}${walletAddress.toLowerCase()}`;
+      const key = `${CHALLENGE_PREFIX}${normalizedAddress}`;
 
       await redis.set(key, challenge, 'EX', CHALLENGE_TTL);
       return challenge;
@@ -69,7 +82,11 @@ export class AuthService {
   }
 
   static async verifySignatureAndIssueJWT(walletAddress: string, signedChallenge: string): Promise<string> {
-    const identity = walletAddress.toLowerCase();
+    // Normalise at the service boundary — identical to generateChallenge so the
+    // Redis key always matches regardless of the casing the caller provides.
+    // The original `walletAddress` is kept for Keypair.fromPublicKey which
+    // requires the canonical uppercase Stellar key form.
+    const identity = walletAddress.trim().toLowerCase();
     const failureKey = `${AUTH_FAILURE_PREFIX}${identity}`;
 
     try {
@@ -133,10 +150,11 @@ export class AuthService {
         await redis.set(failureKey, '0', 'EX', 1);
       }
 
-      // Ensure user exists
-      await findOrCreateUser(walletAddress);
+      // Ensure user exists — always pass the normalised address so the DB
+      // unique constraint on walletAddress is never violated by case variants.
+      await findOrCreateUser(identity);
 
-      return await this.issueToken(walletAddress);
+      return await this.issueToken(identity);
     } catch (error: unknown) {
       if (isAppError(error)) throw error;
       throw new AppError(ErrorCode.INFRA_ERROR, 'Authentication service dependency failure', 503);
@@ -161,6 +179,10 @@ export class AuthService {
       }
 
       if (await this.isTokenRevoked(decoded.jti)) {
+        throw new AppError(ErrorCode.AUTH_ERROR, 'Unauthorized: token has been revoked', 401);
+      }
+
+      if (decoded.fid && (await this.isFamilyRevoked(decoded.fid))) {
         throw new AppError(ErrorCode.AUTH_ERROR, 'Unauthorized: token has been revoked', 401);
       }
 
@@ -227,6 +249,25 @@ export class AuthService {
         throw new AppError(ErrorCode.AUTH_ERROR, 'Token too old to refresh', 401);
       }
 
+      const familyId = decoded.fid ?? decoded.jti;
+      if (await this.isFamilyRevoked(familyId)) {
+        throw new AppError(ErrorCode.AUTH_ERROR, 'Token revoked', 401);
+      }
+
+      // Atomically claim this token's single rotation. A second presentation
+      // of an already-rotated token is reuse: either a benign race between two
+      // legitimate refreshes, or a replay of a stolen token.
+      const rotationTtl = Math.max(decoded.exp, now) + REFRESH_EXPIRY_GRACE_SECONDS - now;
+      const claimed = await redis.set(`${ROTATED_PREFIX}${decoded.jti}`, String(now), 'EX', rotationTtl, 'NX');
+      if (claimed === null) {
+        const rotatedAt = Number.parseInt((await redis.get(`${ROTATED_PREFIX}${decoded.jti}`)) ?? '', 10);
+        if (Number.isFinite(rotatedAt) && now - rotatedAt <= REFRESH_REUSE_GRACE_SECONDS) {
+          throw new AppError(ErrorCode.AUTH_ERROR, 'Token refresh already in progress', 409);
+        }
+        await this.revokeFamily(familyId, decoded.walletAddress, decoded.jti);
+        throw new AppError(ErrorCode.AUTH_ERROR, 'Token reuse detected; all sessions revoked', 401);
+      }
+
       if (await this.isTokenRevoked(decoded.jti)) {
         throw new AppError(ErrorCode.AUTH_ERROR, 'Token revoked', 401);
       }
@@ -239,7 +280,7 @@ export class AuthService {
         Math.max(decoded.exp, now) + REFRESH_EXPIRY_GRACE_SECONDS,
       );
 
-      return await this.issueToken(decoded.walletAddress);
+      return await this.issueToken(decoded.walletAddress, familyId);
     } catch (error: unknown) {
       if (isAppError(error)) throw error;
       throw new AppError(ErrorCode.AUTH_ERROR, 'Token refresh failed', 401);
@@ -271,6 +312,48 @@ export class AuthService {
     }
   }
 
+  /** Returns true if every token in the refresh family has been revoked. */
+  static async isFamilyRevoked(familyId: string): Promise<boolean> {
+    try {
+      return (await redis.exists(`${REVOKED_FAMILY_PREFIX}${familyId}`)) === 1;
+    } catch (error: unknown) {
+      throw new AppError(ErrorCode.INFRA_ERROR, 'Revocation check failed', 503);
+    }
+  }
+
+  /**
+   * Revoke a whole refresh-token family after reuse of a rotated token, log
+   * the user out everywhere, and emit a security audit event.
+   */
+  static async revokeFamily(familyId: string, walletAddress: string, reusedJti: string): Promise<void> {
+    const tokenTtl = parseInt(process.env.JWT_EXPIRES_IN ?? env.JWT_EXPIRES_IN, 10) || 86400;
+    try {
+      await redis.set(`${REVOKED_FAMILY_PREFIX}${familyId}`, '1', 'EX', tokenTtl + REFRESH_EXPIRY_GRACE_SECONDS);
+      // A thief may have started other families from the same wallet, so also
+      // invalidate every outstanding token for this user.
+      await this.bumpTokenVersion(walletAddress);
+    } catch (error: unknown) {
+      if (isAppError(error)) throw error;
+      throw new AppError(ErrorCode.INFRA_ERROR, 'Revocation failed', 503);
+    }
+
+    try {
+      await prisma.refreshToken.deleteMany({ where: { familyId } });
+    } catch {
+      // Redis is authoritative for revocation; persisted rows are best-effort.
+    }
+
+    appLogger.warn(
+      {
+        event: 'security.refresh_token_reuse',
+        walletAddress: walletAddress.toLowerCase(),
+        familyId,
+        reusedJti,
+      },
+      'Refresh token reuse detected; token family revoked',
+    );
+  }
+
   /** Current token generation for a wallet. Tokens issued at an older generation are rejected. */
   static async getTokenVersion(walletAddress: string): Promise<number> {
     try {
@@ -295,7 +378,7 @@ export class AuthService {
     }
   }
 
-  private static async issueToken(walletAddress: string): Promise<string> {
+  private static async issueToken(walletAddress: string, familyId?: string): Promise<string> {
     const secret = process.env.JWT_SECRET ?? env.JWT_SECRET;
     if (!secret) {
       throw new Error('JWT_SECRET not set');
@@ -311,6 +394,7 @@ export class AuthService {
       walletAddress: walletAddress.toLowerCase(),
       jti,
       tv,
+      fid: familyId ?? jti,
       iss: process.env.JWT_ISSUER ?? env.JWT_ISSUER,
       aud: process.env.JWT_AUDIENCE ?? env.JWT_AUDIENCE,
       iat: now,

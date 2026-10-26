@@ -1,0 +1,90 @@
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main, develop]
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive -diff infra/terraform
+
+  validate:
+    name: terraform validate (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging]
+    defaults:
+      run:
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+      - name: terraform init (no backend)
+        run: terraform init -backend=false -input=false
+      - name: terraform validate
+        run: terraform validate -no-color
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.50.3
+      - name: tflint --init
+        # Reads .tflint.hcl at repo root; installs the AWS ruleset plugin so
+        # CloudFront, S3, IAM and other AWS resource types are fully linted.
+        run: tflint --init
+      - name: tflint — modules
+        # Lint every module independently (each directory is self-contained).
+        # --config points every chdir invocation back to the repo-root config
+        # so the AWS plugin and disabled rules are consistently applied.
+        run: |
+          CONFIG="$(pwd)/.tflint.hcl"
+          for dir in \
+            infra/terraform/modules/cdn \
+            infra/terraform/modules/vpc \
+            infra/terraform/modules/eks \
+            infra/terraform/modules/rds \
+            infra/terraform/modules/redis \
+            infra/terraform/modules/secrets \
+            infra/terraform/modules/admin_isolation; do
+            echo "::group::tflint $dir"
+            tflint --chdir="$dir" --config="$CONFIG" --format=compact
+            echo "::endgroup::"
+          done
+      - name: tflint — environments
+        # Lint environment configs where variables are bound to concrete values.
+        run: |
+          CONFIG="$(pwd)/.tflint.hcl"
+          for dir in \
+            infra/terraform/environments/staging \
+            infra/terraform/environments/dev; do
+            echo "::group::tflint $dir"
+            tflint --chdir="$dir" --config="$CONFIG" --format=compact
+            echo "::endgroup::"
+          done

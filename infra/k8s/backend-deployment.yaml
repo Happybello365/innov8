@@ -20,64 +20,77 @@ spec:
       labels:
         app: backend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
-          image: kingfrankhood/amana-backend:latest
+          image: kingfrankhood/innov8-backend:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 4000
               name: http
           envFrom:
             - configMapRef:
-                name: amana-config
+                name: innov8-config
           env:
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: POSTGRES_USER
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: POSTGRES_PASSWORD
             - name: DATABASE_URL
-              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-service:5432/amana"
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-service:5432/innov8"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: REDIS_PASSWORD
             - name: REDIS_URL
               value: "redis://:$(REDIS_PASSWORD)@redis-service:6379/0"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: JWT_SECRET
             - name: PINATA_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: PINATA_API_KEY
             - name: PINATA_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: PINATA_SECRET
             - name: PINATA_JWT
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: PINATA_JWT
             - name: IPFS_URL_SIGNING_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: IPFS_URL_SIGNING_SECRET
             - name: ADMIN_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: amana-secrets
+                  name: innov8-secrets
                   key: ADMIN_SECRET_KEY
           resources:
             requests:
@@ -86,6 +99,9 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           # Startup probe: gives the container time to initialise before
           # liveness/readiness take over. Uses /health/startup which checks
           # critical deps + config + admin signing key.
@@ -123,6 +139,9 @@ spec:
                   - /bin/sh
                   - -c
                   - sleep 10
+      volumes:
+        - name: tmp
+          emptyDir: {}
       # Tune termination grace to accommodate: preStop sleep (10s) + interval
       # between preStop and SIGTERM + bounded drain (<30s). Explicit value
       # guarantees the orchestrator's force-exit timer fires before the

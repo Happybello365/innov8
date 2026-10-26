@@ -12,7 +12,6 @@ const queueConnections: IORedis[] = [];
  * workers re-attach. See docs/redis-resilience.md#queue-consumers
  */
 export function createQueueConnection(): IORedis {
-  // @ts-expect-error - ioredis URL+options constructor is valid at runtime
   const conn: IORedis = new IORedis(REDIS_URL, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
@@ -85,6 +84,13 @@ export interface ExportJobData {
   filters?: Record<string, unknown>;
 }
 
+export interface WebhookPurgeJobData {
+  /** Retention period in days. Defaults to WEBHOOK_DELIVERY_RETENTION_DAYS env var or 30. */
+  retentionDays?: number;
+  /** Number of rows to delete per batch. Defaults to 500. */
+  batchSize?: number;
+}
+
 const defaultJobOptions = {
   attempts: 3,
   backoff: { type: 'exponential' as const, delay: 2000 },
@@ -123,11 +129,30 @@ export const piiScanQueue = new Queue<PiiScanJobData>('pii-log-scan', {
   defaultJobOptions,
 });
 
+export const webhookSecretPurgeQueue = new Queue<Record<string, never>>('webhook-secret-purge', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
 export interface ReconciliationSweepJobData {
   sweepId?: string;
 }
 
 export const reconciliationQueue = new Queue<ReconciliationSweepJobData>('reconciliation', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export const webhookPurgeQueue = new Queue<WebhookPurgeJobData>('webhook-purge', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export interface TreasuryReconciliationJobData {
+  triggeredBy?: string;
+}
+
+export const treasuryReconciliationQueue = new Queue<TreasuryReconciliationJobData>('treasury-reconciliation', {
   connection: createQueueConnection(),
   defaultJobOptions,
 });
