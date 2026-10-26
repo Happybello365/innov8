@@ -15,7 +15,7 @@ import { appLogger } from "../middleware/logger";
  * Called periodically to emit queue health metrics to Prometheus.
  */
 export class QueueMetricsService {
-  private metricsInterval: NodeJS.Timer | null = null;
+  private metricsInterval: NodeJS.Timeout | null = null;
   private readonly intervalMs: number = 30_000; // 30 seconds
 
   /**

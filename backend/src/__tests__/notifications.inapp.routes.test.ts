@@ -255,6 +255,38 @@ describe("Notifications Route", () => {
     });
   });
 
+  describe("GET /notifications/unread-count", () => {
+    it("returns the unread notification count for the authenticated user", async () => {
+      mockPrisma.inAppNotification.count.mockResolvedValue(5);
+
+      const res = await request(app)
+        .get("/notifications/unread-count")
+        .set("Authorization", `Bearer ${userToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.count).toBe(5);
+      expect(mockPrisma.inAppNotification.count).toHaveBeenCalledWith({
+        where: { userAddress: userAddress, isRead: false },
+      });
+    });
+
+    it("returns count 0 when all notifications are read", async () => {
+      mockPrisma.inAppNotification.count.mockResolvedValue(0);
+
+      const res = await request(app)
+        .get("/notifications/unread-count")
+        .set("Authorization", `Bearer ${userToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.count).toBe(0);
+    });
+
+    it("returns 401 without auth", async () => {
+      const res = await request(app).get("/notifications/unread-count");
+      expect(res.status).toBe(401);
+    });
+  });
+
   describe("POST /notifications/read-all", () => {
     it("marks all unread notifications as read", async () => {
       mockPrisma.inAppNotification.updateMany.mockResolvedValue({

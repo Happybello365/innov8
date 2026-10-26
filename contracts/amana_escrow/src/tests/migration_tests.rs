@@ -300,4 +300,141 @@ mod migration_tests {
 
         assert_eq!(token_at_creation, token_a);
     }
+
+    // -----------------------------------------------------------------------
+    // Two consecutive schema version upgrades (N -> N+1 -> N+2)
+    //
+    // The contract only records `SchemaVersion`; it ships no migration of its
+    // own yet. These tests model the documented upgrade procedure from
+    // docs/upgrade-considerations.md: each migration step is gated on the
+    // stored version, rewrites every persisted trade through the `TradeData`
+    // envelope and then advances `SchemaVersion`.
+    // -----------------------------------------------------------------------
+
+    use crate::{CURRENT_SCHEMA_VERSION, DataKey, TradeData};
+
+    /// Run one migration step on `contract_id`, moving `from` -> `to`.
+    fn migrate(env: &Env, contract_id: &Address, trade_ids: &[u64], from: u32, to: u32) {
+        env.as_contract(contract_id, || {
+            let stored: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::SchemaVersion)
+                .unwrap_or(CURRENT_SCHEMA_VERSION);
+            assert_eq!(stored, from, "migration expects schema version {from}");
+
+            for trade_id in trade_ids {
+                let key = DataKey::Trade(*trade_id);
+                let data: TradeData = env.storage().persistent().get(&key).unwrap();
+                env.storage().persistent().set(&key, &data);
+            }
+            env.storage().instance().set(&DataKey::SchemaVersion, &to);
+        });
+    }
+
+    /// Two escrow contracts that share one token and the same parties, so a
+    /// trade created in each at the same ledger is directly comparable.
+    fn deploy_pair(env: &Env) -> (Address, Address, Address, Address, Address) {
+        let admin = Address::generate(env);
+        let buyer = Address::generate(env);
+        let seller = Address::generate(env);
+        let treasury = Address::generate(env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        token::StellarAssetClient::new(env, &token_id).mint(&buyer, &20_000_i128);
+
+        let stepwise = env.register(EscrowContract, ());
+        let single_step = env.register(EscrowContract, ());
+        for contract_id in [&stepwise, &single_step] {
+            EscrowContractClient::new(env, contract_id)
+                .initialize(&admin, &token_id, &treasury, &100_u32, &token_id);
+        }
+        (stepwise, single_step, token_id, buyer, seller)
+    }
+
+    #[test]
+    fn test_trade_survives_two_consecutive_migrations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (stepwise, single_step, token_id, buyer, seller) = deploy_pair(&env);
+        let step_client = EscrowContractClient::new(&env, &stepwise);
+        let single_client = EscrowContractClient::new(&env, &single_step);
+
+        // Equivalent funded trades created at the original schema version.
+        let step_trade =
+            step_client.create_trade(&buyer, &seller, &10_000_i128, &5000_u32, &5000_u32, &None);
+        let single_trade =
+            single_client.create_trade(&buyer, &seller, &10_000_i128, &5000_u32, &5000_u32, &None);
+        step_client.deposit(&step_trade);
+        single_client.deposit(&single_trade);
+        assert_eq!(step_trade, single_trade, "equivalent starting data");
+        assert_eq!(step_client.get_schema_version(), CURRENT_SCHEMA_VERSION);
+
+        let before = step_client.get_trade(&step_trade);
+
+        // Two migrations in sequence on one contract...
+        let n = CURRENT_SCHEMA_VERSION;
+        migrate(&env, &stepwise, &[step_trade], n, n + 1);
+        assert_eq!(step_client.get_schema_version(), n + 1);
+        assert_eq!(
+            step_client.get_trade(&step_trade),
+            before,
+            "trade must be intact after the first migration"
+        );
+        migrate(&env, &stepwise, &[step_trade], n + 1, n + 2);
+
+        // ...versus a single step straight to N+2 on the other.
+        migrate(&env, &single_step, &[single_trade], n, n + 2);
+
+        assert_eq!(step_client.get_schema_version(), n + 2);
+        assert_eq!(single_client.get_schema_version(), n + 2);
+        assert_eq!(
+            step_client.get_trade(&step_trade),
+            before,
+            "trade must be unchanged after two migrations"
+        );
+        assert_eq!(
+            step_client.get_trade(&step_trade),
+            single_client.get_trade(&single_trade),
+            "two-step migration must match the single-step result"
+        );
+
+        let raw = |contract_id: &Address, trade_id: u64| -> TradeData {
+            env.as_contract(contract_id, || {
+                env.storage()
+                    .persistent()
+                    .get(&DataKey::Trade(trade_id))
+                    .unwrap()
+            })
+        };
+        assert_eq!(
+            raw(&stepwise, step_trade),
+            raw(&single_step, single_trade),
+            "stored envelopes must match"
+        );
+
+        // The migrated trade still settles through its original token.
+        step_client.confirm_delivery(&step_trade);
+        step_client.release_funds(&step_trade, &buyer);
+        assert!(matches!(
+            step_client.get_trade(&step_trade).status,
+            TradeStatus::Completed
+        ));
+        assert_eq!(token::Client::new(&env, &token_id).balance(&seller), 9_900);
+    }
+
+    #[test]
+    #[should_panic(expected = "migration expects schema version")]
+    fn test_second_migration_cannot_skip_the_first() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (stepwise, _single_step, _token_id, buyer, seller) = deploy_pair(&env);
+        let client = EscrowContractClient::new(&env, &stepwise);
+        let trade_id =
+            client.create_trade(&buyer, &seller, &10_000_i128, &5000_u32, &5000_u32, &None);
+
+        let n = CURRENT_SCHEMA_VERSION;
+        migrate(&env, &stepwise, &[trade_id], n + 1, n + 2);
+    }
 }

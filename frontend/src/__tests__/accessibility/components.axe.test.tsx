@@ -8,6 +8,17 @@ import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TradeListItem } from "@/components/trade/TradeListItem";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ToastContainer } from "@/components/ui/ToastContainer";
+
+jest.mock("@/hooks/useToast", () => ({
+  useToast: () => ({
+    toasts: [
+      { id: "t1", message: "Trade submitted", type: "success" },
+      { id: "t2", message: "Connection error", type: "error" },
+    ],
+    removeToast: jest.fn(),
+  }),
+}));
 
 expect.extend(toHaveNoViolations);
 
@@ -46,6 +57,10 @@ describe("Accessibility audit — WCAG 2.1 AA", () => {
         </FormField>
       );
       expect(await axe(container)).toHaveNoViolations();
+      const input = container.querySelector("input")!;
+      const errorId = input.getAttribute("aria-describedby");
+      expect(errorId).toBeTruthy();
+      expect(document.getElementById(errorId!)).toHaveTextContent("Invalid email address");
     });
 
     it("has no axe violations with hint text", async () => {
@@ -160,6 +175,25 @@ describe("Accessibility audit — WCAG 2.1 AA", () => {
         />
       );
       expect(await axe(container)).toHaveNoViolations();
+    });
+  });
+
+  describe("ToastContainer (issue #211)", () => {
+    it("has no axe violations with multiple toasts", async () => {
+      const { container } = render(<ToastContainer />);
+      expect(await axe(container)).toHaveNoViolations();
+    });
+
+    it("renders a polite aria-live region", () => {
+      const { container } = render(<ToastContainer />);
+      const liveRegion = container.querySelector("[aria-live='polite']");
+      expect(liveRegion).not.toBeNull();
+    });
+
+    it("sets aria-atomic to false so individual toasts are announced separately", () => {
+      const { container } = render(<ToastContainer />);
+      const liveRegion = container.querySelector("[aria-live='polite']");
+      expect(liveRegion?.getAttribute("aria-atomic")).toBe("false");
     });
   });
 });

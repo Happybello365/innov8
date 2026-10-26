@@ -71,10 +71,10 @@ export default function Step2Negotiation() {
           max={100}
           step={5}
           value={data.buyerRatio}
+          aria-invalid={Boolean(errors.sum && touched.buyerRatio)}
+          aria-describedby={errors.sum && touched.buyerRatio ? "loss-ratio-error" : undefined}
           aria-label="Buyer loss ratio"
           aria-valuetext={`Buyer absorbs ${data.buyerRatio} percent, Seller absorbs ${data.sellerRatio} percent`}
-          aria-invalid={!!(errors.sum && touched.buyerRatio)}
-          aria-describedby={errors.sum && touched.buyerRatio ? "error-buyer-ratio" : undefined}
           onChange={(e) => handleBuyerRatio(parseInt(e.target.value))}
           className="w-full accent-gold"
         />
@@ -95,7 +95,7 @@ export default function Step2Negotiation() {
             )}
           </div>
         </div>
-        {errors.sum && touched.buyerRatio && <p id="error-buyer-ratio" role="alert" aria-live="polite" className="text-status-danger text-xs text-center">{errors.sum}</p>}
+        {errors.sum && touched.buyerRatio && <p id="loss-ratio-error" role="alert" aria-live="polite" className="text-status-danger text-xs text-center">{errors.sum}</p>}
       </div>
 
       {/* Delivery window */}
@@ -107,6 +107,8 @@ export default function Step2Negotiation() {
           min="1"
           max="90"
           value={data.deliveryDays}
+          aria-invalid={Boolean(errors.deliveryDays && touched.deliveryDays)}
+          aria-describedby={errors.deliveryDays && touched.deliveryDays ? "delivery-days-error" : undefined}
           onChange={(e) => {
             const raw = parseInt(e.target.value);
             const clamped = isNaN(raw) ? 1 : Math.min(90, Math.max(1, raw));
@@ -114,11 +116,9 @@ export default function Step2Negotiation() {
             setErrors((prev) => ({ ...prev, deliveryDays: "" }));
           }}
           onBlur={() => handleBlur("deliveryDays")}
-          aria-invalid={!!(errors.deliveryDays && touched.deliveryDays)}
-          aria-describedby={errors.deliveryDays && touched.deliveryDays ? "error-delivery-days" : undefined}
           className="bg-bg-input border border-border-default rounded-md px-4 py-3 text-text-primary focus:outline-none focus:border-border-focus"
         />
-        {errors.deliveryDays && touched.deliveryDays && <p id="error-delivery-days" role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.deliveryDays}</p>}
+        {errors.deliveryDays && touched.deliveryDays && <p id="delivery-days-error" role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">{errors.deliveryDays}</p>}
       </div>
 
       {/* Notes */}

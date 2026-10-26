@@ -12,7 +12,6 @@ const queueConnections: IORedis[] = [];
  * workers re-attach. See docs/redis-resilience.md#queue-consumers
  */
 export function createQueueConnection(): IORedis {
-  // @ts-expect-error - ioredis URL+options constructor is valid at runtime
   const conn: IORedis = new IORedis(REDIS_URL, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
@@ -145,6 +144,15 @@ export const reconciliationQueue = new Queue<ReconciliationSweepJobData>('reconc
 });
 
 export const webhookPurgeQueue = new Queue<WebhookPurgeJobData>('webhook-purge', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export interface TreasuryReconciliationJobData {
+  triggeredBy?: string;
+}
+
+export const treasuryReconciliationQueue = new Queue<TreasuryReconciliationJobData>('treasury-reconciliation', {
   connection: createQueueConnection(),
   defaultJobOptions,
 });

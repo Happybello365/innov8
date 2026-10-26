@@ -5,6 +5,7 @@ import { alertService } from "../services/alert.service";
 import {
   computeBufferedFee,
   feeBufferOptionsFromEnv,
+  type FeePercentile,
 } from "../services/feeEstimator.service";
 import { cacheGet, cacheSet } from "../lib/cache";
 
@@ -21,7 +22,7 @@ interface FeesPayload {
     perOperationFee: number;
     transactionFee: number;
     operations: number;
-    percentile: number;
+    percentile: FeePercentile;
     percentileFee: number;
     multiplier: number;
     congested: boolean;

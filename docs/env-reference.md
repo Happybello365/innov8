@@ -15,8 +15,8 @@ Environment variables for the backend API server. Source: `backend/src/config/en
 | **Authentication & Sessions** | | | | | |
 | `JWT_SECRET` | Yes | — | String (min 32 chars) | Yes | Secret key for signing JWT tokens. Must be at least 32 characters. |
 | `JWT_EXPIRES_IN` | No | `86400` | String | No | JWT expiration time (seconds). Default 24 hours. |
-| `JWT_ISSUER` | No | `amana` | String | No | JWT issuer claim. |
-| `JWT_AUDIENCE` | No | `amana-api` | String | No | JWT audience claim. |
+| `JWT_ISSUER` | No | `innov8` | String | No | JWT issuer claim. |
+| `JWT_AUDIENCE` | No | `innov8-api` | String | No | JWT audience claim. |
 | `ADMIN_SECRET_KEY` | Yes | — | String (min 1 char) | Yes | Stellar secret key for signing admin transactions. Server fails to start without this. |
 | `ADMIN_STELLAR_PUBKEYS` | No | (empty) | String (comma-separated) | No | List of Stellar public keys allowed to access admin routes. Empty means all authenticated users. |
 | `ADMIN_ROUTES_ENABLED` | No | `false` | Boolean | No | Enable/disable admin routes at startup. |
@@ -338,7 +338,7 @@ NODE_ENV=development
 PORT=4000
 JWT_SECRET=your-secret-key-must-be-at-least-32-characters-long
 ADMIN_SECRET_KEY=SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-DATABASE_URL=postgresql://user:password@localhost:5432/amana
+DATABASE_URL=postgresql://user:password@localhost:5432/innov8
 STELLAR_NETWORK=testnet
 AMANA_ESCROW_CONTRACT_ID=CXXXXXX...
 USDC_CONTRACT_ID=CYYYYYY...

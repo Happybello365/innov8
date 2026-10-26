@@ -210,6 +210,20 @@ describe('Step1Details', () => {
 
             expect(input).toHaveValue('MAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
         });
+
+        it('associates a validation error with the seller address field', async () => {
+            const user = userEvent.setup();
+            renderWithProvider();
+
+            const input = screen.getByLabelText(/seller stellar address/i);
+            await user.click(input);
+            await user.tab();
+
+            expect(input).toHaveAttribute('aria-invalid', 'true');
+            const errorId = input.getAttribute('aria-describedby');
+            expect(errorId).toBe('seller-address-error');
+            expect(document.getElementById(errorId!)).toHaveTextContent('Invalid Stellar public key');
+        });
     });
 
     describe('total price calculation', () => {
