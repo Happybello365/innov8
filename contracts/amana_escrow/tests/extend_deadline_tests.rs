@@ -588,3 +588,75 @@ fn test_admin_cannot_exceed_lifetime_ceiling() {
     let over_ceiling = 365 * 24 * 60 * 60 + 1;
     h.c().set_extension_policy(&3u32, &over_ceiling);
 }
+
+// ---------------------------------------------------------------------------
+// #280 — boundary at the maximum total extension (`max_total_extension_secs`)
+// ---------------------------------------------------------------------------
+
+/// A configured cap is reached exactly, across several extensions, and the
+/// deadline lands precisely on `original + max_total_extension_secs`.
+#[test]
+fn test_extensions_can_reach_the_configured_cap_exactly() {
+    let h = H::new();
+    h.init();
+
+    let cap_secs: u64 = 7_200;
+    h.c().set_extension_policy(&3u32, &cap_secs);
+
+    let trade_id = h.funded_trade_with_deadline(1_000_000, 3600);
+    let original = h.c().get_trade(&trade_id).expires_at.unwrap();
+
+    h.c().extend_deadline(&trade_id, &(original + 3_600));
+    h.c().extend_deadline(&trade_id, &(original + cap_secs));
+
+    let trade = h.c().get_trade(&trade_id);
+    assert_eq!(trade.expires_at, Some(original + cap_secs));
+
+    let status = h.c().get_extension_status(&trade_id);
+    assert_eq!(status.extended_by_secs, cap_secs);
+    assert_eq!(status.extension_secs_remaining, 0);
+    assert!(
+        status.is_exhausted,
+        "a spent lifetime budget exhausts the trade even with count remaining"
+    );
+}
+
+/// With the cap already reached exactly, the very next extension attempt — even
+/// by a single second — is refused with the documented error.
+#[test]
+#[should_panic(expected = "New deadline exceeds the maximum total extension for this trade")]
+fn test_next_extension_after_reaching_the_cap_exactly_is_rejected() {
+    let h = H::new();
+    h.init();
+
+    let cap_secs: u64 = 7_200;
+    h.c().set_extension_policy(&3u32, &cap_secs);
+
+    let trade_id = h.funded_trade_with_deadline(1_000_000, 3600);
+    let original = h.c().get_trade(&trade_id).expires_at.unwrap();
+
+    h.c().extend_deadline(&trade_id, &(original + cap_secs));
+    assert_eq!(
+        h.c().get_extension_status(&trade_id).extension_secs_remaining,
+        0
+    );
+
+    h.c().extend_deadline(&trade_id, &(original + cap_secs + 1));
+}
+
+/// The same boundary for a configured cap on a single extension: exactly the
+/// cap passes (above), one second over fails.
+#[test]
+#[should_panic(expected = "New deadline exceeds the maximum total extension for this trade")]
+fn test_configured_cap_plus_one_second_is_rejected() {
+    let h = H::new();
+    h.init();
+
+    let cap_secs: u64 = 7_200;
+    h.c().set_extension_policy(&3u32, &cap_secs);
+
+    let trade_id = h.funded_trade_with_deadline(1_000_000, 3600);
+    let original = h.c().get_trade(&trade_id).expires_at.unwrap();
+
+    h.c().extend_deadline(&trade_id, &(original + cap_secs + 1));
+}

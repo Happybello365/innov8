@@ -27,7 +27,8 @@
       ],
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Stellar Wave uses local network to communicate with backend services",
-        "NSBonjourServiceTypes": ["_stellarwave._tcp"]
+        "NSBonjourServiceTypes": ["_stellarwave._tcp"],
+        "NSFaceIDUsageDescription": "Stellar Wave uses Face ID to confirm high-value trades"
       }
     },
     "android": {
@@ -55,7 +56,11 @@
           "category": ["BROWSABLE", "DEFAULT"]
         }
       ],
-      "permissions": ["android.permission.ACCESS_COARSE_LOCATION"]
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

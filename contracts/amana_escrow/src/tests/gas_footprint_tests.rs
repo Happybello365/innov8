@@ -272,4 +272,149 @@ mod gas_footprint_tests {
             "repeated_partial_clawback_5x",
         );
     }
+
+    /// Mediator count used for the quorum worst case. Every mediator carries
+    /// weight 1 and `required_weight` equals this count, so the final vote has
+    /// to walk and tally the whole accumulated vote set before it settles.
+    const MAX_QUORUM_MEDIATORS: u32 = 10;
+
+    /// Issue #278 — `cast_dispute_vote` at the maximum mediator count.
+    ///
+    /// The last vote is the worst case for quorum tallying: it reads the full
+    /// vote list, rejects duplicate voters across all prior votes, tallies
+    /// weight for the outcome, and then settles the dispute.
+    #[test]
+    fn test_gas_cast_dispute_vote_at_max_mediator_count() {
+        let ctx = Ctx::new(10_000);
+        let client = ctx.client();
+
+        let mut voters = std::vec::Vec::new();
+        voters.push(ctx.mediator.clone());
+        for _ in 1..MAX_QUORUM_MEDIATORS {
+            let mediator = Address::generate(&ctx.env);
+            client.add_mediator(&mediator);
+            voters.push(mediator);
+        }
+        for voter in voters.iter() {
+            client.set_mediator_weight(voter, &1_u32);
+        }
+        client.set_quorum_config(
+            &true,
+            &0_i128,
+            &MAX_QUORUM_MEDIATORS,
+            &(7 * 24 * 60 * 60_u64),
+            &1_u32,
+        );
+
+        let trade_id = client.create_trade(
+            &ctx.buyer,
+            &ctx.seller,
+            &10_000_i128,
+            &5000_u32,
+            &5000_u32,
+            &None,
+        );
+        client.deposit(&trade_id);
+        client.initiate_dispute(
+            &trade_id,
+            &ctx.buyer,
+            &String::from_str(&ctx.env, "QmGasTestReason"),
+        );
+
+        let last = voters.len() - 1;
+        for voter in voters.iter().take(last) {
+            client.cast_dispute_vote(
+                &trade_id,
+                voter,
+                &5_000_u32,
+                &String::from_str(&ctx.env, "QmGasVote"),
+            );
+        }
+
+        let cost = ctx.measure(|| {
+            client.cast_dispute_vote(
+                &trade_id,
+                &voters[last],
+                &5_000_u32,
+                &String::from_str(&ctx.env, "QmGasVote"),
+            );
+        });
+
+        cost.assert_under(
+            "cast_dispute_vote (max mediators)",
+            "cast_dispute_vote_max_mediators",
+        );
+    }
+
+    /// Issue #286 — isolate the extra `release_funds` cost of stream accounting.
+    ///
+    /// A trade "with stream accounting" has a recorded `ClawbackTotal` (written
+    /// by a partial `admin_clawback` while funded), which `get_stream_accounting`
+    /// reports. Both scenarios release the same 10_000 remaining escrow so the
+    /// token transfer, fee maths and events are identical; only the stream
+    /// accounting bookkeeping differs. Only the `release_funds` call is measured.
+    fn measure_release_funds(with_stream_accounting: bool) -> CostEstimate {
+        const ESCROW_AMOUNT: i128 = 10_000;
+        const CLAWED_BACK: i128 = 5_000;
+
+        let funded_amount = if with_stream_accounting {
+            ESCROW_AMOUNT + CLAWED_BACK
+        } else {
+            ESCROW_AMOUNT
+        };
+        let ctx = Ctx::new(funded_amount);
+        let client = ctx.client();
+        let trade_id = client.create_trade(
+            &ctx.buyer,
+            &ctx.seller,
+            &funded_amount,
+            &5000_u32,
+            &5000_u32,
+            &None,
+        );
+        client.deposit(&trade_id);
+
+        if with_stream_accounting {
+            let destination = Address::generate(&ctx.env);
+            client.admin_clawback(&trade_id, &CLAWED_BACK, &destination);
+            assert_eq!(
+                client.get_stream_accounting(&trade_id),
+                (ESCROW_AMOUNT, 0, CLAWED_BACK),
+                "stream accounting must be recorded before release"
+            );
+        } else {
+            assert_eq!(client.get_stream_accounting(&trade_id), (ESCROW_AMOUNT, 0, 0));
+        }
+
+        client.confirm_delivery(&trade_id);
+        ctx.measure(|| {
+            client.release_funds(&trade_id, &ctx.buyer);
+        })
+    }
+
+    #[test]
+    fn test_gas_release_funds_stream_accounting_delta() {
+        let without = measure_release_funds(false);
+        let with = measure_release_funds(true);
+
+        assert!(without.cpu > 0 && without.mem > 0, "baseline cost must be non-zero");
+        assert!(with.cpu > 0 && with.mem > 0, "accounting cost must be non-zero");
+
+        assert_eq!(without, measure_release_funds(false), "release_funds cost is not deterministic");
+        assert_eq!(with, measure_release_funds(true), "release_funds cost is not deterministic");
+
+        println!(
+            "release_funds without stream accounting: CPU {}, MEM {}",
+            without.cpu, without.mem
+        );
+        println!(
+            "release_funds with stream accounting:    CPU {}, MEM {}",
+            with.cpu, with.mem
+        );
+        println!(
+            "stream accounting delta: CPU {:+}, MEM {:+}",
+            with.cpu as i128 - without.cpu as i128,
+            with.mem as i128 - without.mem as i128
+        );
+    }
 }

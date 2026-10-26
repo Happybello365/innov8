@@ -410,6 +410,7 @@ model Goal {
   // Relations
   vault               Vault       @relation(fields: [vaultId], references: [vaultId], onDelete: Cascade)
   user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions       GoalContribution[]
 
   @@index([goalId])
   @@index([vaultId])
@@ -817,4 +818,35 @@ model PilotFeedback {
 
   @@index([status, createdAt])
   @@index([submittedBy, createdAt])
+}
+
+/// ReputationScoreSnapshot records a point-in-time snapshot of a user's trust score.
+/// A new row is inserted every time getUserReputation() recomputes the score,
+/// enabling the UI to chart reputation trends over time.
+model ReputationScoreSnapshot {
+  id            Int      @id @default(autoincrement())
+  /// Wallet address (always lowercase).
+  walletAddress String   @db.VarChar(255)
+  trustScore    Int
+  totalTrades   Int
+  successRate   Float
+  createdAt     DateTime @default(now())
+
+  @@index([walletAddress, createdAt])
+}
+
+/// GoalContribution records each on-chain deposit credited to a savings goal.
+model GoalContribution {
+  id            Int      @id @default(autoincrement())
+  goalId        String   @db.VarChar(255)
+  /// Amount contributed in USDC (string to preserve precision).
+  amountUsdc    String   @db.VarChar(100)
+  /// On-chain transaction hash.
+  txHash        String   @db.VarChar(255)
+  createdAt     DateTime @default(now())
+
+  goal          Goal     @relation(fields: [goalId], references: [goalId], onDelete: Cascade)
+
+  @@index([goalId, createdAt])
+  @@index([txHash])
 }

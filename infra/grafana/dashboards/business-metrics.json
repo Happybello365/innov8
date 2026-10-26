@@ -1,0 +1,91 @@
+{
+  "title": "Amana — Business Metrics",
+  "uid": "amana-business-metrics",
+  "tags": ["amana", "business-metrics", "stored-as-code"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploys",
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "tags": ["deploy"],
+        "type": "tags"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Trades created and settled (per hour)",
+      "description": "Hourly trade creations and terminal settlements. Source: innov8_trades_total, recorded by backend/src/lib/metrics.ts.",
+      "type": "timeseries",
+      "datasource": "${datasource}",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(increase(innov8_trades_total{event=\"created\"}[1h]))",
+          "legendFormat": "Created"
+        },
+        {
+          "expr": "sum(increase(innov8_trades_total{event=~\"released|refunded\"}[1h]))",
+          "legendFormat": "Settled"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Disputes opened and resolved (per hour)",
+      "description": "Dispute initiation and resolution events. Dispute resolution is emitted as event=\"dispute_resolved\" on innov8_trades_total.",
+      "type": "timeseries",
+      "datasource": "${datasource}",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(increase(innov8_trades_total{event=\"disputed\"}[1h]))",
+          "legendFormat": "Opened"
+        },
+        {
+          "expr": "sum(increase(innov8_trades_total{event=\"dispute_resolved\"}[1h]))",
+          "legendFormat": "Resolved"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Released payout volume (USDC per hour)",
+      "description": "Hourly volume of released trades, converted from the histogram's USDC-cent sum to USDC. Source: innov8_trade_gmv_usdc_cents.",
+      "type": "timeseries",
+      "datasource": "${datasource}",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(innov8_trade_gmv_usdc_cents_sum{outcome=\"released\"}[1h])) / 100",
+          "legendFormat": "Released GMV (USDC)"
+        }
+      ]
+    }
+  ]
+}

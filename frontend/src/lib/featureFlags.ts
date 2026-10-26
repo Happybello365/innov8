@@ -37,6 +37,8 @@ export const FLAG_CATALOG = {
   offlineBanner: true,
   /** New trade-creation wizard (multi-step). */
   tradeWizardV2: false,
+  /** Multi-currency display support (NGN + additional currencies). */
+  multiCurrency: false,
 } as const satisfies Record<string, boolean>;
 
 export type FlagName = keyof typeof FLAG_CATALOG;
@@ -72,6 +74,9 @@ export function getFeatureFlags(): FeatureFlags {
     tradeWizardV2:
       process.env.NEXT_PUBLIC_ENABLE_TRADE_WIZARD_V2 === "true" ||
       FLAG_CATALOG.tradeWizardV2,
+    multiCurrency:
+      process.env.NEXT_PUBLIC_ENABLE_MULTI_CURRENCY === "true" ||
+      FLAG_CATALOG.multiCurrency,
   };
 }
 

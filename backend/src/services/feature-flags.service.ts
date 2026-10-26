@@ -6,12 +6,18 @@ export interface FeatureFlagRecord {
   enabled: boolean;
   /** 0-100. When set, gates the flag to a deterministic subset of users, keyed by user id. */
   rolloutPercentage?: number;
+  /**
+   * Optional numeric setting carried by the flag (e.g. the USDC threshold for
+   * `high_value_trade_reauth`, #269). Absent for plain on/off flags.
+   */
+  value?: number;
   updatedAt: string;
 }
 
 export interface FeatureFlagUpdate {
   enabled: boolean;
   rolloutPercentage?: number;
+  value?: number;
 }
 
 function flagKey(name: string): string {
@@ -77,10 +83,14 @@ export class FeatureFlagService {
     ) {
       throw new RangeError("rolloutPercentage must be between 0 and 100");
     }
+    if (update.value !== undefined && (!Number.isFinite(update.value) || update.value < 0)) {
+      throw new RangeError("value must be a finite, non-negative number");
+    }
 
     const record: FeatureFlagRecord = {
       enabled: update.enabled,
       rolloutPercentage: update.rolloutPercentage,
+      ...(update.value !== undefined ? { value: update.value } : {}),
       updatedAt: new Date().toISOString(),
     };
 

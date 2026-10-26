@@ -53,6 +53,7 @@ they drift.
 | `TRADE_ACCESS_DENIED` | 403 | Access to this trade is denied |
 | `TRADE_INVALID_STATUS` | 400 | Trade is not in a valid status for this action |
 | `TRADE_BUILD_FAILED` | 500 | Failed to build trade transaction |
+| `TRADE_AMOUNT_EXCEEDS_PILOT_CAP` | 400 | Trade amount exceeds the pilot limit |
 | `DISPUTE_INVALID_CATEGORY` | 400 | Invalid dispute category |
 | `DISPUTE_STATUS_TRANSITION_INVALID` | 400 | Invalid dispute status transition |
 | `DISPUTE_STATUS_CONFLICT` | 409 | Dispute was modified concurrently |

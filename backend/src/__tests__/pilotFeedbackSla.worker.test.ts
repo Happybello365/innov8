@@ -1,15 +1,27 @@
 import { Job } from "bullmq";
-import { processPilotFeedbackSLACheck } from "../../jobs/workers/pilotFeedbackSla.worker";
-import { pilotFeedbackSlaService } from "../../services/pilotFeedbackSla.service";
-import { appLogger } from "../../middleware/logger";
+import { processPilotFeedbackSLACheck } from "../jobs/workers/pilotFeedbackSla.worker";
+import { pilotFeedbackSlaService } from "../services/pilotFeedbackSla.service";
+import { appLogger } from "../middleware/logger";
 
-jest.mock("../../services/pilotFeedbackSla.service", () => ({
+jest.mock("bullmq", () => ({
+  Worker: jest.fn(),
+}));
+
+jest.mock("../jobs/queue", () => ({
+  createQueueConnection: jest.fn(),
+}));
+
+jest.mock("../jobs/deadLetter", () => ({
+  attachDeadLetterQueue: jest.fn(),
+}));
+
+jest.mock("../services/pilotFeedbackSla.service", () => ({
   pilotFeedbackSlaService: {
     checkSLAViolations: jest.fn(),
   },
 }));
 
-jest.mock("../../middleware/logger", () => ({
+jest.mock("../middleware/logger", () => ({
   appLogger: {
     info: jest.fn(),
     error: jest.fn(),
