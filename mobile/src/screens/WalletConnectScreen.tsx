@@ -11,6 +11,7 @@ import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
 import { useAuthStore } from '../stores/authStore';
 import { authApi } from '../api/auth';
+import { spacing } from '../constants/theme';
 
 type Props = StackScreenProps<RootStackParamList, 'WalletConnect'>;
 
@@ -71,6 +72,7 @@ export default function WalletConnectScreen({ navigation }: Props) {
           style={[styles.button, connecting && styles.buttonDisabled]}
           onPress={handleConnect}
           disabled={connecting}
+          testID="connect-wallet-btn"
         >
           {connecting ? (
             <ActivityIndicator color="#fff" />
@@ -88,11 +90,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f4f0',
     justifyContent: 'center',
-    padding: 24,
+    padding: spacing.lg,
   },
   hero: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: spacing.xxl,
   },
   logo: {
     fontSize: 64,
@@ -113,7 +115,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 24,
+    padding: spacing.lg,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -123,13 +125,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#1a3a1a',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   cardBody: {
     fontSize: 14,
     color: '#555',
     lineHeight: 22,
-    marginBottom: 24,
+    marginBottom: spacing.lg,
   },
   button: {
     backgroundColor: '#2d6a2d',

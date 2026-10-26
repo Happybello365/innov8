@@ -72,6 +72,8 @@ export default function Step2Negotiation() {
           max={100}
           step={5}
           value={data.buyerRatio}
+          aria-invalid={Boolean(errors.sum && touched.buyerRatio)}
+          aria-describedby={errors.sum && touched.buyerRatio ? "loss-ratio-error" : undefined}
           aria-label="Buyer loss ratio"
           aria-valuenow={data.buyerRatio}
           aria-valuemin={0}
@@ -109,7 +111,7 @@ export default function Step2Negotiation() {
         </div>
         {errors.sum && touched.buyerRatio && (
           <p role="alert" aria-live="polite" className="text-status-danger text-xs text-center">
-            <span className="mr-1">⚠</span>{errors.sum}
+            <span className="mr-1" aria-hidden="true">⚠</span>{errors.sum}
           </p>
         )}
       </fieldset>
@@ -123,6 +125,8 @@ export default function Step2Negotiation() {
           min="1"
           max="90"
           value={data.deliveryDays}
+          aria-invalid={Boolean(errors.deliveryDays && touched.deliveryDays)}
+          aria-describedby={errors.deliveryDays && touched.deliveryDays ? "delivery-days-error" : undefined}
           onChange={(e) => {
             const raw = parseInt(e.target.value);
             const clamped = isNaN(raw) ? 1 : Math.min(90, Math.max(1, raw));
@@ -130,13 +134,11 @@ export default function Step2Negotiation() {
             setErrors((prev) => ({ ...prev, deliveryDays: "" }));
           }}
           onBlur={() => handleBlur("deliveryDays")}
-          aria-invalid={!!errors.deliveryDays && touched.deliveryDays}
-          aria-describedby={errors.deliveryDays && touched.deliveryDays ? "delivery-error" : undefined}
           className="bg-bg-input border border-border-default rounded-md px-4 py-3 text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
         />
         {errors.deliveryDays && touched.deliveryDays && (
-          <p id="delivery-error" role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">
-            <span className="mr-1">⚠</span>{errors.deliveryDays}
+          <p id="delivery-days-error" role="alert" aria-live="polite" className="text-status-danger text-xs mt-1">
+            <span className="mr-1" aria-hidden="true">⚠</span>{errors.deliveryDays}
           </p>
         )}
       </div>

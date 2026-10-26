@@ -380,6 +380,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
       <View style={styles.header}>
         <TouchableOpacity 
           onPress={() => navigation.goBack()}
+          testID="back-btn"
           accessible
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -390,6 +391,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
         <TouchableOpacity 
           onPress={handleShare} 
           style={{ width: 60, alignItems: 'flex-end' }}
+          testID="share-btn"
           accessible
           accessibilityRole="button"
           accessibilityLabel="Share trade"
@@ -505,6 +507,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
               style={[styles.actionBtn, styles.depositBtn, actionLoading && styles.btnDisabled]}
               onPress={handleDeposit}
               disabled={actionLoading}
+              testID="deposit-funds-btn"
             >
               {actionLoading ? (
                 <ActivityIndicator color="#fff" />
@@ -519,6 +522,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
               style={[styles.actionBtn, styles.confirmBtn, actionLoading && styles.btnDisabled]}
               onPress={handleConfirmDelivery}
               disabled={actionLoading}
+              testID="confirm-delivery-btn"
             >
               {actionLoading ? (
                 <ActivityIndicator color="#fff" />
@@ -533,6 +537,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
               style={[styles.actionBtn, styles.releaseBtn, actionLoading && styles.btnDisabled]}
               onPress={handleReleaseFunds}
               disabled={actionLoading}
+              testID="release-funds-btn"
             >
               {actionLoading ? (
                 <ActivityIndicator color="#fff" />
@@ -547,6 +552,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
               style={[styles.actionBtn, styles.disputeBtn, actionLoading && styles.btnDisabled]}
               onPress={() => setDisputeModalVisible(true)}
               disabled={actionLoading}
+              testID="initiate-dispute-btn"
             >
               <Text style={styles.actionBtnText}>⚠️ Initiate Dispute</Text>
             </TouchableOpacity>

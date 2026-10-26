@@ -56,9 +56,9 @@
         "$description": "Body text, labels"
       },
       "muted": {
-        "$value": "#5A7A6A",
+        "$value": "#8BA89A",
         "$type": "color",
-        "$description": "Placeholder, disabled"
+        "$description": "Placeholder, disabled with readable contrast on dark surfaces"
       },
       "inverse": {
         "$value": "#0B1A14",

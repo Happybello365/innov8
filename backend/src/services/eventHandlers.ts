@@ -299,6 +299,7 @@ export async function handleDisputeResolved(
     { tradeId: event.tradeId, ledger: event.ledgerSequence },
     "[EventHandler] DisputeResolved",
   );
+  recordTradeFunnelEvent("dispute_resolved");
   webhookService.dispatch(event.tradeId, TradeStatus.COMPLETED, {
     ledger: event.ledgerSequence,
   });

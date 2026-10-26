@@ -53,6 +53,29 @@ The corresponding `ErrorCode` enum values (in `backend/src/errors/errorCodes.ts`
 
 ---
 
+## Timelock Error Codes (Issue #189)
+
+Emitted by the timelock queue/execute flow (`pub mod timelock_errors`).
+
+| Error Code                | Description                                                    |
+|---------------------------|----------------------------------------------------------------|
+| `TIMELOCK_UNAUTHORIZED`   | Caller is not authorised to queue, execute or cancel the operation. |
+| `TIMELOCK_NOT_READY`      | The operation's `execute_after` time has not been reached.     |
+| `TIMELOCK_OP_NOT_FOUND`   | No queued operation exists for the given operation ID.         |
+| `TIMELOCK_INVALID_OP`     | The queued operation payload is not valid for this action.     |
+
+---
+
+## Fee Withdrawal Error Codes (Issue #5)
+
+Emitted by `withdraw_fees` (`pub mod fee_errors`).
+
+| Error Code                      | Description                                                              |
+|---------------------------------|--------------------------------------------------------------------------|
+| `FEES_DESTINATION_IS_CONTRACT`  | Withdrawal destination is the escrow contract itself.                    |
+
+---
+
 ## Source of Truth
 
 | Artifact                                                   | Purpose                                 |
@@ -61,6 +84,7 @@ The corresponding `ErrorCode` enum values (in `backend/src/errors/errorCodes.ts`
 | `backend/src/errors/errorCodes.ts` → `enum ErrorCode`     | Backend enum values                     |
 | `backend/src/services/contractClawbackError.service.ts`   | Mapping logic + user-facing messages    |
 | `contracts/amana_escrow/tests/clawback_error_tests.rs`    | On-chain test assertions                |
+| `contracts/amana_escrow/tests/error_docs_sync_tests.rs`   | Fails `cargo test` if this table drifts from `lib.rs` |
 
 These sources **must remain in sync**. If a new error code is added on-chain,
 add the `ErrorCode` entry and a mapping case in the service.

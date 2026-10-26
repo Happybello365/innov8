@@ -41,17 +41,28 @@ const STATUS_COLORS: Record<TradeStatus, string> = {
   REFUNDED: '#6B7280',
 };
 
+// Labels must match web StatusBadge copy verbatim (issue #249).
+const STATUS_LABELS: Record<TradeStatus, string> = {
+  PENDING: 'Pending',
+  FUNDED: 'Funded',
+  IN_TRANSIT: 'In Transit',
+  DELIVERED: 'Delivered',
+  DISPUTED: 'Disputed',
+  COMPLETED: 'Completed',
+  REFUNDED: 'Refunded',
+};
+
 function TradeCard({ trade, onPress }: { trade: Trade; onPress: () => void }) {
   const statusColor = STATUS_COLORS[trade.status] ?? '#6B7280';
   const shortBuyer = `${trade.buyerAddress.slice(0, 6)}…${trade.buyerAddress.slice(-4)}`;
   const shortSeller = `${trade.sellerAddress.slice(0, 6)}…${trade.sellerAddress.slice(-4)}`;
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75} testID={`trade-card-${trade.tradeId.slice(0, 8)}`}>
       <View style={styles.cardRow}>
         <Text style={styles.tradeId}>#{trade.tradeId.slice(0, 8)}</Text>
         <View style={[styles.statusBadge, { backgroundColor: `${statusColor}22` }]}>
-          <Text style={[styles.statusText, { color: statusColor }]}>{trade.status}</Text>
+          <Text style={[styles.statusText, { color: statusColor }]}>{STATUS_LABELS[trade.status] ?? trade.status}</Text>
         </View>
       </View>
       <Text style={styles.amount}>{formatAmount(trade.amountUsdc, 'USDC')} USDC</Text>
@@ -127,6 +138,7 @@ export default function TradeListScreen({ navigation }: Props) {
           </TouchableOpacity>
           <TouchableOpacity 
             onPress={() => navigation.navigate('CreateTrade')}
+            testID="new-trade-btn"
             accessible
             accessibilityRole="button"
             accessibilityLabel="Create new trade"
@@ -142,7 +154,7 @@ export default function TradeListScreen({ navigation }: Props) {
             <Text style={[styles.createBtnText, { color: theme.primary }]}>ⓘ</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={handleLogout}>
-            <Text style={[styles.logoutText, { color: theme.textMuted }]}>Logout</Text>
+            <Text style={[styles.logoutText, { color: theme.textMuted }]} testID="logout-btn">Logout</Text>
           </TouchableOpacity>
         </View>
       </View>
