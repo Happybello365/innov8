@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  startTransition,
   useState,
 } from "react";
 
@@ -34,6 +35,10 @@ function resolveTheme(pref: Theme): "light" | "dark" {
   return pref === "system" ? getSystemPreference() : pref;
 }
 
+function isTheme(value: string | null): value is Theme {
+  return value === "light" || value === "dark" || value === "system";
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [themePreference, setThemePreference] = useState<Theme>("system");
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("dark");
@@ -42,19 +47,27 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Read persisted preference and apply it (no flash — applied before paint via
   // the inline script in <head> below).
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    const pref = stored ?? "system";
-    setThemePreference(pref);
-    setResolvedTheme(resolveTheme(pref));
-    setMounted(true);
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(STORAGE_KEY);
+    } catch {
+      // Storage may be unavailable in private browsing; system preference still works.
+    }
+    const pref = isTheme(stored) ? stored : "system";
+    startTransition(() => {
+      setThemePreference(pref);
+      setResolvedTheme(resolveTheme(pref));
+      setMounted(true);
+    });
   }, []);
 
   // Apply the `dark` class to <html> whenever resolvedTheme changes.
   useEffect(() => {
+    if (!mounted) return;
     const root = document.documentElement;
     root.classList.remove("light", "dark");
     root.classList.add(resolvedTheme);
-  }, [resolvedTheme]);
+  }, [mounted, resolvedTheme]);
 
   // Listen for OS-level preference changes when the user is on "system".
   useEffect(() => {
@@ -72,7 +85,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemePreference(theme);
     const resolved = resolveTheme(theme);
     setResolvedTheme(resolved);
-    localStorage.setItem(STORAGE_KEY, theme);
+    try {
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      // Keep the current session usable when storage is unavailable.
+    }
 
     // Briefly add transition class so the switch animates smoothly.
     document.documentElement.classList.add("theme-transition");

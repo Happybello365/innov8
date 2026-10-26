@@ -382,6 +382,7 @@ Created → Funded → Delivered → Completed
 - [Soroban Security Best Practices](https://developers.stellar.org/docs/smart-contracts)
 - [Amana Backend Reliability Layer](./backend.md)
 - [Amana Escrow Contract README](../contracts/amana_escrow/README.md)
+- [Money-Math Invariant Catalog](./money-math-invariant-catalog.md) — fund-conservation invariants (INV-009) that reviewers check the contract against.
 - OWASP Smart Contract Top 10
 
 ---

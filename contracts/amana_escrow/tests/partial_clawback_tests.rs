@@ -29,7 +29,7 @@ extern crate std;
 
 use amana_escrow::{TradeStatus, test_fixture::AdminSignerFixture};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
+    testutils::{Address as _, Events as _, Ledger as _},
     xdr::ContractEventBody,
     xdr::ScVal,
     Address, String as SStr,
@@ -442,4 +442,124 @@ fn clawback_succeeds_after_re_enabling() {
 
     let trade = h.client().get_trade(&trade_id);
     assert_eq!(trade.amount, 7_000_i128);
+}
+
+// ---------------------------------------------------------------------------
+// queue_clawback / execute_clawback x in-flight dispute
+//
+// Decided behaviour: a timelocked clawback is allowed on a `Disputed` trade,
+// exactly like `admin_clawback`. Eligibility is checked when the operation is
+// *executed*, not when it is queued, so:
+//   - a partial clawback leaves the trade `Disputed` on the reduced amount and
+//     the mediator can still resolve it;
+//   - a full clawback cancels the trade, which closes the dispute;
+//   - an operation whose trade has already been resolved fails at execution.
+// See docs/admin_clawback_function.md.
+// ---------------------------------------------------------------------------
+
+/// Move past the default 24h clawback delay (and the 7d upgrade delay).
+fn pass_timelock(h: &Harness) {
+    h.env.ledger().with_mut(|ledger| ledger.timestamp += 604_801);
+}
+
+#[test]
+fn queued_clawback_executes_on_trade_disputed_after_queueing() {
+    let h = Harness::new();
+    let trade_id = h.funded_trade(10_000);
+    let dest = Address::generate(&h.env);
+
+    let op = h.client().queue_clawback(&trade_id, &3_000_i128, &dest);
+    h.client().initiate_dispute(
+        &trade_id,
+        &h.buyer,
+        &SStr::from_str(&h.env, "QmQueuedThenDisputed"),
+    );
+    pass_timelock(&h);
+    h.client().execute_clawback(&op);
+
+    let trade = h.client().get_trade(&trade_id);
+    assert!(matches!(trade.status, TradeStatus::Disputed));
+    assert_eq!(trade.amount, 7_000_i128);
+    assert_eq!(h.client().get_clawback_total(&trade_id), 3_000_i128);
+    assert_eq!(h.token().balance(&dest), 3_000_i128);
+    assert!(h.client().get_queued_operation(&op).unwrap().executed);
+}
+
+#[test]
+fn clawback_queued_during_open_dispute_leaves_dispute_resolvable() {
+    let h = Harness::new();
+    let trade_id = disputed_trade(&h, 10_000);
+    let dest = Address::generate(&h.env);
+
+    let op = h.client().queue_clawback(&trade_id, &4_000_i128, &dest);
+    pass_timelock(&h);
+    h.client().execute_clawback(&op);
+
+    assert!(matches!(
+        h.client().get_trade(&trade_id).status,
+        TradeStatus::Disputed
+    ));
+    assert_eq!(h.client().get_trade(&trade_id).amount, 6_000_i128);
+
+    // The dispute still resolves, and only over the remaining escrow.
+    h.client().resolve_dispute(&trade_id, &h.mediator, &5_000_u32);
+    assert!(matches!(
+        h.client().get_trade(&trade_id).status,
+        TradeStatus::Completed
+    ));
+    assert_eq!(h.token().balance(&dest), 4_000_i128);
+    assert_eq!(
+        h.token().balance(&h.seller)
+            + h.token().balance(&h.buyer)
+            + h.client().get_accrued_fees(),
+        6_000_i128,
+        "resolution must distribute exactly the unclawed remainder"
+    );
+}
+
+#[test]
+fn full_clawback_on_disputed_trade_cancels_it_and_closes_the_dispute() {
+    let h = Harness::new();
+    let trade_id = disputed_trade(&h, 10_000);
+    let dest = Address::generate(&h.env);
+
+    let op = h.client().queue_clawback(&trade_id, &10_000_i128, &dest);
+    pass_timelock(&h);
+    h.client().execute_clawback(&op);
+
+    let trade = h.client().get_trade(&trade_id);
+    assert!(matches!(trade.status, TradeStatus::Cancelled));
+    assert_eq!(trade.amount, 0_i128);
+    assert_eq!(h.token().balance(&dest), 10_000_i128);
+    assert!(
+        h.client()
+            .try_resolve_dispute(&trade_id, &h.mediator, &5_000_u32)
+            .is_err(),
+        "a cancelled trade can no longer be resolved"
+    );
+}
+
+#[test]
+fn queued_clawback_fails_once_the_dispute_has_been_resolved() {
+    let h = Harness::new();
+    let trade_id = h.funded_trade(10_000);
+    let dest = Address::generate(&h.env);
+
+    let op = h.client().queue_clawback(&trade_id, &3_000_i128, &dest);
+    h.client().initiate_dispute(
+        &trade_id,
+        &h.buyer,
+        &SStr::from_str(&h.env, "QmResolvedBeforeExecution"),
+    );
+    h.client().resolve_dispute(&trade_id, &h.mediator, &5_000_u32);
+    pass_timelock(&h);
+
+    assert!(h.client().try_execute_clawback(&op).is_err());
+    assert!(matches!(
+        h.client().get_trade(&trade_id).status,
+        TradeStatus::Completed
+    ));
+    assert_eq!(h.client().get_clawback_total(&trade_id), 0_i128);
+    assert_eq!(h.token().balance(&dest), 0_i128);
+    assert!(!h.client().get_queued_operation(&op).unwrap().executed);
 }

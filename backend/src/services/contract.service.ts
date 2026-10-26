@@ -209,8 +209,25 @@ export async function buildInitiateDisputeTx(
   return prepared.toXDR();
 }
 
+/**
+ * Fallback for `get_max_evidence_per_party` (#272) when the contract cannot be
+ * read (no CONTRACT_ID, RPC outage). Must equal `MAX_EVIDENCE_PER_PARTY` in
+ * contracts/amana_escrow/src/lib.rs.
+ */
+export const DEFAULT_MAX_EVIDENCE_PER_PARTY = 10;
+
+/** On-chain tunables change only with a contract upgrade, so cache reads briefly. */
+const CONTRACT_CONSTANT_CACHE_TTL_MS = 10 * 60 * 1000;
+
+export interface ContractConstantRead {
+  value: number;
+  /** `chain` when read from contract state, `default` when the fallback was used. */
+  source: "chain" | "default";
+}
+
 export class ContractService {
   private readonly rpcServer: StellarSdk.rpc.Server;
+  private maxEvidenceCache?: { value: number; expiresAt: number };
   private readonly contractId: string;
   private readonly tokenContractId: string;
   private readonly networkPassphrase: string;
@@ -580,6 +597,55 @@ export class ContractService {
     }
 
     return String(StellarSdk.scValToNative(simulation.result.retval));
+  }
+
+  /**
+   * Read the per-party evidence cap enforced by `submit_evidence` (#272).
+   *
+   * Simulates the read-only `get_max_evidence_per_party` entrypoint, so no
+   * signature or fee is needed and the source account does not have to exist.
+   * Falls back to {@link DEFAULT_MAX_EVIDENCE_PER_PARTY} (and logs) when the
+   * contract is unconfigured or the read fails, so callers never break.
+   */
+  public async getMaxEvidencePerParty(now: number = Date.now()): Promise<ContractConstantRead> {
+    if (this.maxEvidenceCache && this.maxEvidenceCache.expiresAt > now) {
+      return { value: this.maxEvidenceCache.value, source: "chain" };
+    }
+    if (!this.contractId) {
+      return { value: DEFAULT_MAX_EVIDENCE_PER_PARTY, source: "default" };
+    }
+
+    try {
+      const contract = new StellarSdk.Contract(this.contractId);
+      const source = new StellarSdk.Account(StellarSdk.Keypair.random().publicKey(), "0");
+      const transaction = new StellarSdk.TransactionBuilder(source, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(contract.call("get_max_evidence_per_party"))
+        .setTimeout(DEFAULT_TIMEOUT_SECONDS)
+        .build();
+
+      const simulation = await simulateRpcTransaction(this.rpcServer, transaction);
+      if ("error" in simulation && typeof simulation.error === "string") {
+        throw new Error(simulation.error);
+      }
+      if (!("result" in simulation) || !simulation.result) {
+        throw new Error("simulation returned no result");
+      }
+      const value = Number(StellarSdk.scValToNative(simulation.result.retval));
+      if (!Number.isInteger(value) || value <= 0) {
+        throw new Error(`unexpected value ${String(value)}`);
+      }
+      this.maxEvidenceCache = { value, expiresAt: now + CONTRACT_CONSTANT_CACHE_TTL_MS };
+      return { value, source: "chain" };
+    } catch (error) {
+      appLogger.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        "Failed to read get_max_evidence_per_party from contract; using default",
+      );
+      return { value: DEFAULT_MAX_EVIDENCE_PER_PARTY, source: "default" };
+    }
   }
 
   /** Static delegate so tests can mock via ContractService.buildConfirmDeliveryTx */

@@ -1,7 +1,10 @@
 pub mod admin_transfer_tests;
+pub mod auth_matrix_exhaustive_tests;
 pub mod bps_fuzz_tests;
+pub mod dispute_summary_tests;
 pub mod event_schema_tests;
 pub mod fee_update_tests;
+pub mod fund_conservation_tests;
 pub mod generated_schema_tests;
 pub mod gas_footprint_tests;
 pub mod migration_tests;
@@ -12,3 +15,4 @@ pub mod trade_history_tests;
 pub mod ttl_tests;
 pub mod withdraw_fees_tests;
 pub mod per_asset_pause_tests;
+pub mod evidence_cap_tests;

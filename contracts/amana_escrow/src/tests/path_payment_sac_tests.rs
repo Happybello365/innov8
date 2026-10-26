@@ -214,4 +214,109 @@ mod path_payment_sac_tests {
         f.client()
             .deposit_with_path(&tid, &f.buyer, &SOURCE_AMOUNT, &SOURCE_AMOUNT, &path(&f));
     }
+
+    // -----------------------------------------------------------------------
+    // Fuzz coverage: slippage tolerance x minimum destination amount
+    // -----------------------------------------------------------------------
+
+    use quickcheck::{QuickCheck, TestResult};
+
+    const BPS_DIVISOR: i128 = 10_000;
+    /// Each case builds a fresh contract environment, so keep the case count
+    /// small enough to stay inside the CI time budget.
+    const FUZZ_CASES: u64 = 64;
+
+    /// Outcome of one `finalize_path_payment` attempt, checked for atomicity.
+    fn assert_all_or_nothing(f: &AdminSignerFixture, tid: u64, dest_min: i128, delivered: i128) {
+        let result = f.client().try_finalize_path_payment(&tid, &f.buyer);
+        let trade = f.client().get_trade(&tid);
+
+        if delivered >= dest_min {
+            assert!(result.is_ok(), "delivered {delivered} >= dest_min {dest_min} must succeed");
+            assert!(matches!(trade.status, TradeStatus::Funded));
+            assert_eq!(trade.amount, delivered, "funded amount must equal the delivered amount");
+            assert_eq!(f.token().balance(&f.contract_id), delivered);
+            // The intent is consumed: a second finalization cannot succeed.
+            assert!(f.client().try_finalize_path_payment(&tid, &f.buyer).is_err());
+        } else {
+            assert!(result.is_err(), "delivered {delivered} < dest_min {dest_min} must fail");
+            assert!(matches!(trade.status, TradeStatus::Created));
+            assert_eq!(trade.amount, SOURCE_AMOUNT, "a failed finalization must not change the trade amount");
+            assert!(trade.funded_at.is_none());
+            // The pending intent and the escrowed source tokens are untouched.
+            assert_eq!(f.source_token().balance(&f.contract_id), SOURCE_AMOUNT);
+            assert_eq!(f.token().balance(&f.contract_id), delivered);
+        }
+    }
+
+    /// Arbitrary `dest_min` and delivered amounts: finalization either funds
+    /// the trade with exactly the delivered amount or fails with no change.
+    #[test]
+    fn fuzz_dest_min_and_delivered_amount_all_or_nothing() {
+        fn prop(raw_dest_min: u32, raw_delivered: u32) -> TestResult {
+            let dest_min = (raw_dest_min as i128 % (SOURCE_AMOUNT * 4)) + 1;
+            let delivered = raw_delivered as i128 % (SOURCE_AMOUNT * 4 + 1);
+
+            let f = AdminSignerFixture::new_with_source_token();
+            let tid = open_path_deposit(&f, dest_min);
+            if delivered > 0 {
+                deliver(&f, delivered);
+            }
+            assert_all_or_nothing(&f, tid, dest_min, delivered);
+            TestResult::passed()
+        }
+        QuickCheck::new()
+            .tests(FUZZ_CASES)
+            .quickcheck(prop as fn(u32, u32) -> TestResult);
+    }
+
+    /// Slippage expressed in basis points: `dest_min` is the quoted amount
+    /// minus the tolerance and the path delivers the quote minus the realised
+    /// slippage. The deposit succeeds exactly when realised <= tolerance.
+    #[test]
+    fn fuzz_slippage_tolerance_bps_against_realised_slippage() {
+        fn prop(raw_quote: u32, raw_tolerance: u16, raw_realised: u16) -> TestResult {
+            let quote = (raw_quote as i128 % (SOURCE_AMOUNT * 4)) + BPS_DIVISOR;
+            let tolerance = raw_tolerance as i128 % (BPS_DIVISOR + 1);
+            let realised = raw_realised as i128 % (BPS_DIVISOR + 1);
+
+            let dest_min = quote * (BPS_DIVISOR - tolerance) / BPS_DIVISOR;
+            if dest_min == 0 {
+                // deposit_with_path requires dest_min > 0; covered separately.
+                return TestResult::discard();
+            }
+            let delivered = quote * (BPS_DIVISOR - realised) / BPS_DIVISOR;
+
+            let f = AdminSignerFixture::new_with_source_token();
+            let tid = open_path_deposit(&f, dest_min);
+            if delivered > 0 {
+                deliver(&f, delivered);
+            }
+            assert_all_or_nothing(&f, tid, dest_min, delivered);
+
+            if realised <= tolerance {
+                assert!(delivered >= dest_min, "realised slippage within tolerance must meet dest_min");
+            }
+            TestResult::passed()
+        }
+        QuickCheck::new()
+            .tests(FUZZ_CASES)
+            .quickcheck(prop as fn(u32, u16, u16) -> TestResult);
+    }
+
+    /// Boundary table: the delivered amount sits at, just below and just above
+    /// `dest_min`, including the minimum possible `dest_min` of 1.
+    #[test]
+    fn slippage_boundaries_around_dest_min() {
+        for dest_min in [1_i128, 2, SOURCE_AMOUNT, SOURCE_AMOUNT * 4] {
+            for delivered in [dest_min - 1, dest_min, dest_min + 1] {
+                let f = AdminSignerFixture::new_with_source_token();
+                let tid = open_path_deposit(&f, dest_min);
+                if delivered > 0 {
+                    deliver(&f, delivered);
+                }
+                assert_all_or_nothing(&f, tid, dest_min, delivered);
+            }
+        }
+    }
 }

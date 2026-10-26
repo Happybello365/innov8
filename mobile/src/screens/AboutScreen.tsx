@@ -6,9 +6,11 @@ import type { RootStackParamList } from '../types/navigation';
 import { SUPPORT_EMAIL } from '../constants/support';
 import { getTheme } from '../constants/theme';
 
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 type Props = StackScreenProps<RootStackParamList, 'About'>;
 
 export default function AboutScreen({ navigation }: Props) {
+  const { contentStyle } = useResponsiveLayout();
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
   const theme = getTheme(scheme);
@@ -31,20 +33,34 @@ export default function AboutScreen({ navigation }: Props) {
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.background }]}>
       <View style={[styles.header, { backgroundColor: theme.headerBg, borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={[styles.backBtn, { color: theme.primary }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>About</Text>
         <View style={{ width: 60 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, contentStyle]}>
         <View style={[styles.card, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
           <InfoRow label="App Version" value={version} theme={theme} />
           <InfoRow label="Build Number" value={buildNumber} theme={theme} />
           <InfoRow label="Network" value={network} theme={theme} />
           <InfoRow label="API Base URL" value={apiBaseUrl} theme={theme} mono last />
         </View>
+
+        <TouchableOpacity
+          style={[styles.supportBtn, { backgroundColor: theme.primary }]}
+          onPress={() => navigation.navigate('SecuritySettings')}
+          accessibilityRole="button"
+          accessibilityLabel="Security settings"
+        >
+          <Text style={[styles.supportBtnText, { color: theme.primaryText }]}>Security Settings</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.supportBtn, { backgroundColor: theme.primary }]}

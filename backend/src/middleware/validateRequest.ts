@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AppError, ErrorCode } from "../errors/errorCodes";
+import { normalizeCurrencyFields } from "../validators/currency.validators";
 
 type ParseAsyncSchema = {
   parseAsync: (input: unknown) => Promise<unknown>;
@@ -64,19 +65,22 @@ export const validateRequest = (schema: {
 }) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (schema.body) {
+      if (schema.body && req.body) {
+        req.body = normalizeCurrencyFields(req.body);
         const parsed = await schema.body.parseAsync(req.body);
         req.body = sanitizeValue(parsed);
       }
-      if (schema.query) {
-        const parsed = await schema.query.parseAsync(req.query);
+      if (schema.query && req.query) {
+        const normalizedQuery = normalizeCurrencyFields(req.query);
+        const parsed = await schema.query.parseAsync(normalizedQuery);
         Object.defineProperty(req, 'query', {
           value: sanitizeValue(parsed),
           writable: true,
           configurable: true,
         });
       }
-      if (schema.params) {
+      if (schema.params && req.params) {
+        req.params = normalizeCurrencyFields(req.params) as any;
         const parsed = await schema.params.parseAsync(req.params);
         req.params = sanitizeValue(parsed) as any;
       }

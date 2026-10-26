@@ -58,7 +58,7 @@ function createMockPrisma() {
     },
   };
 
-  return {
+  const mockPrisma = {
     processedEvent: {
       findUnique: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
@@ -66,6 +66,14 @@ function createMockPrisma() {
     chainEventOutbox: {
       findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ ...outbox }),
+      // Production code calls `upsert` (atomic find-or-create), not `create`
+      // directly. Delegate to whatever `.create` currently resolves to —
+      // looked up dynamically, not snapshotted — so tests that override
+      // `prisma.chainEventOutbox.create` to seed a pre-existing row (e.g.
+      // "already RETRYING with 2 attempts") still take effect.
+      upsert: jest.fn().mockImplementation(async (...args: any[]) =>
+        mockPrisma.chainEventOutbox.create(...args),
+      ),
       update: jest.fn().mockImplementation(async ({ data }: any) => {
         if (typeof data.attempts === "number") outbox.attempts = data.attempts;
         if (data.status) outbox.status = data.status;
@@ -77,6 +85,7 @@ function createMockPrisma() {
     _outbox: outbox,
     _tx: tx,
   } as any;
+  return mockPrisma;
 }
 
 function rawEvent() {
