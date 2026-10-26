@@ -96,6 +96,7 @@ model User {
   webhookSubscriptions WebhookSubscription[]
   notifications   InAppNotification[]
   notificationPreference NotificationPreference?
+  pilotFeedback   PilotFeedback[]
 
   @@index([walletAddress])
 }
@@ -790,6 +791,33 @@ model EscrowAudit {
   @@index([tradeId])
   @@index([tradeId, createdAt])
   @@index([eventType])
+}
+
+/// PilotFeedback model for collecting and tracking pilot program feedback items.
+/// Feedback status lifecycle: OPEN → RESOLVED/CLOSED
+/// Used by the SLA monitoring job to alert when items exceed their configured SLA.
+model PilotFeedback {
+  id                        Int       @id @default(autoincrement())
+  /// Wallet address of the user who submitted the feedback (always lowercase)
+  submittedBy               String    @db.VarChar(255)
+  title                     String    @db.VarChar(255)
+  content                   String    @db.Text
+  /// Item status: OPEN (active) or RESOLVED/CLOSED (terminal)
+  status                    String    @default("OPEN") @db.VarChar(50)
+  /// Optional resolution notes or action description
+  resolutionNotes           String?   @db.Text
+  /// Timestamp when SLA violation alert was last dispatched (prevents duplicate alerts)
+  slaViolationAlertSentAt   DateTime?
+  createdAt                 DateTime  @default(now())
+  /// Set when status transitions to RESOLVED or CLOSED
+  resolvedAt                DateTime?
+  updatedAt                 DateTime  @updatedAt
+
+  // Relations
+  submitter User @relation(fields: [submittedBy], references: [walletAddress], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([submittedBy, createdAt])
 }
 
 /// ReputationScoreSnapshot records a point-in-time snapshot of a user's trust score.

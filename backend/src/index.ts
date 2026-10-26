@@ -16,7 +16,8 @@ import { createReconciliationWorker } from "./jobs/workers/reconciliation.worker
 import { createTreasuryReconciliationWorker } from "./jobs/workers/treasuryReconciliation.worker";
 import { createWebhookSecretPurgeWorker } from "./jobs/workers/webhookSecretPurge.worker";
 import { createPiiLogScannerWorker } from "./jobs/workers/piiLogScanner.worker";
-import { reconciliationQueue, piiScanQueue, webhookSecretPurgeQueue, treasuryReconciliationQueue, closeAllQueueConnections } from "./jobs/queue";
+import { createPilotFeedbackSLAWorker } from "./jobs/workers/pilotFeedbackSla.worker";
+import { reconciliationQueue, piiScanQueue, webhookSecretPurgeQueue, treasuryReconciliationQueue, pilotFeedbackSlaCheckQueue, closeAllQueueConnections } from "./jobs/queue";
 import { redis } from "./lib/redis";
 import { ShutdownOrchestrator, Shutdownable } from "./lib/shutdown";
 import { formatConfigFingerprint } from "./config/env";
@@ -94,6 +95,7 @@ let reconciliationWorker: ReturnType<typeof createReconciliationWorker> | undefi
 let treasuryReconciliationWorker: ReturnType<typeof createTreasuryReconciliationWorker> | undefined;
 let webhookSecretPurgeWorker: ReturnType<typeof createWebhookSecretPurgeWorker> | undefined;
 let piiLogScannerWorker: ReturnType<typeof createPiiLogScannerWorker> | undefined;
+let pilotFeedbackSLAWorker: ReturnType<typeof createPilotFeedbackSLAWorker> | undefined;
 
 async function startReconciliationCron() {
   if (!env.RECONCILIATION_CRON_ENABLED) {
@@ -175,6 +177,28 @@ async function startPiiScanCron() {
   }
 }
 
+async function startPilotFeedbackSLACron() {
+  try {
+    pilotFeedbackSLAWorker = createPilotFeedbackSLAWorker();
+    appLogger.info("Pilot feedback SLA worker started");
+
+    // Run twice daily at 06:00 and 18:00 UTC to check for SLA violations
+    // Spaced 12 hours apart to balance coverage without excessive frequency
+    await pilotFeedbackSlaCheckQueue.add(
+      "sla-check",
+      {},
+      {
+        repeat: {
+          pattern: "0 6,18 * * *",
+        },
+      },
+    );
+    appLogger.info("Pilot feedback SLA check scheduled (06:00 and 18:00 UTC)");
+  } catch (error) {
+    appLogger.error({ error }, "Failed to start pilot feedback SLA cron");
+  }
+}
+
 async function bootstrap() {
   const isTest = (process.env.NODE_ENV ?? env.NODE_ENV) === "test";
 
@@ -218,6 +242,7 @@ async function bootstrap() {
     await startTreasuryReconciliationCron();
     await startPiiScanCron();
     await startWebhookSecretPurge();
+    await startPilotFeedbackSLACron();
   });
 
   // Ordered, bounded, logged graceful shutdown.
@@ -271,12 +296,20 @@ async function bootstrap() {
         },
       },
       {
+        name: "pilot-feedback-sla-worker",
+        stop: async () => {
+          if (pilotFeedbackSLAWorker) await pilotFeedbackSLAWorker.close();
+          else appLogger.info("Pilot feedback SLA worker not running — skipping");
+        },
+      },
+      {
         name: "queue-connections",
         stop: async () => {
           await reconciliationQueue.close();
           await treasuryReconciliationQueue.close();
           await piiScanQueue.close();
           await webhookSecretPurgeQueue.close();
+          await pilotFeedbackSlaCheckQueue.close();
           await closeAllQueueConnections();
         },
       },
