@@ -1,3 +1,4 @@
+pub mod staged_release_tests;
 pub mod admin_transfer_tests;
 pub mod auth_matrix_exhaustive_tests;
 pub mod bps_fuzz_tests;
