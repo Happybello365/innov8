@@ -165,14 +165,15 @@ describe("idempotencyMiddleware", () => {
   function installLockingRedis() {
     const state = { cachedPayload: null as string | null, lockHeld: false };
 
-    redisMock.get.mockImplementation(async (key: string) => {
+    redisMock.get.mockImplementation(async (key: any) => {
       if (key === "idempotency:POST:/trades:idem-1") {
         return state.cachedPayload as any;
       }
       return null as any;
     });
 
-    redisMock.set.mockImplementation(async (key: string, value: string, mode: string) => {
+    redisMock.set.mockImplementation(async (key: any, value: any, ...rest: any[]) => {
+      const mode = rest[rest.length - 1];
       if (key === "idempotency:lock:POST:/trades:idem-1" && mode === "NX") {
         if (state.lockHeld) return null as any;
         state.lockHeld = true;
@@ -185,7 +186,7 @@ describe("idempotencyMiddleware", () => {
       return "OK" as any;
     });
 
-    redisMock.del.mockImplementation(async (key: string) => {
+    redisMock.del.mockImplementation(async (key: any) => {
       if (key === "idempotency:lock:POST:/trades:idem-1") {
         state.lockHeld = false;
       }
