@@ -8,6 +8,10 @@ export type RootStackParamList = {
   CreateTrade: undefined;
   EvidenceCapture: { tradeId: string };
   VaultDashboard: undefined;
+  /** #261 — contribution history for one savings goal */
+  GoalContributionHistory: { goalId: string };
+  /** #262 — reputation score trend */
+  ReputationHistory: undefined;
   AdminStreamsOverview: undefined;
   AdminTradesBatch: undefined;
   AdminContract: undefined;
