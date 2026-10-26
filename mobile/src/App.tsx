@@ -11,8 +11,13 @@ import {
   checkNotificationPermissions,
 } from './services/notification.service';
 import { AppNavigator } from './navigation/AppNavigator';
+import { UpdateBanner } from './components/UpdateBanner';
+import { initCrashReporting } from './services/crashReporting.service';
 import { BiometricLockOverlay } from './components/BiometricLockOverlay';
 import { useBiometricLock } from './hooks/useBiometricLock';
+
+// Install before the first render so boot-time crashes are captured too.
+initCrashReporting();
 
 export default function App() {
   const scheme = useColorScheme();
@@ -57,6 +62,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppNavigator isAuthenticated={!!token} isAdmin={isAdmin} />
+        <UpdateBanner />
         {locked && <BiometricLockOverlay onUnlock={unlock} />}
         <StatusBar style={isDark ? 'light' : 'dark'} />
       </SafeAreaProvider>

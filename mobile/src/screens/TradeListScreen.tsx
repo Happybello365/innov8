@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,19 @@ import {
   StyleSheet,
   ActivityIndicator,
   Linking,
+  Animated,
   useColorScheme,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
 import type { Trade, TradeStatus } from '../types/trade';
 import { useTradeStore } from '../stores/tradeStore';
 import { useAuthStore } from '../stores/authStore';
+import { usePendingTradeStore } from '../stores/pendingTradeStore';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import type { PendingTrade } from '../services/offline.service';
 import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
 import { formatAmount } from '../utils/formatAmount';
@@ -54,7 +59,17 @@ const STATUS_LABELS: Record<TradeStatus, string> = {
   REFUNDED: 'Refunded',
 };
 
-function TradeCard({ trade, onPress, selected = false }: { trade: Trade; onPress: () => void; selected?: boolean }) {
+function TradeCard({
+  trade,
+  onPress,
+  onLongPress,
+  selected = false,
+}: {
+  trade: Trade;
+  onPress: () => void;
+  onLongPress: () => void;
+  selected?: boolean;
+}) {
   const statusColor = STATUS_COLORS[trade.status] ?? '#6B7280';
   const shortBuyer = `${trade.buyerAddress.slice(0, 6)}…${trade.buyerAddress.slice(-4)}`;
   const shortSeller = `${trade.sellerAddress.slice(0, 6)}…${trade.sellerAddress.slice(-4)}`;
@@ -63,9 +78,12 @@ function TradeCard({ trade, onPress, selected = false }: { trade: Trade; onPress
     <TouchableOpacity
       style={[styles.card, selected && styles.cardSelected]}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={400}
       activeOpacity={0.75}
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      accessibilityHint="Long-press to copy the trade ID"
       testID={`trade-card-${trade.tradeId}`}
     >
       <View style={styles.cardRow}>
@@ -83,6 +101,45 @@ function TradeCard({ trade, onPress, selected = false }: { trade: Trade; onPress
   );
 }
 
+function PendingTradeCard({
+  entry,
+  onRetry,
+  onDismiss,
+}: {
+  entry: PendingTrade;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  const failed = entry.status === 'failed';
+  const color = failed ? '#EF4444' : '#6B7280';
+  return (
+    <View style={[styles.card, styles.pendingCard]} testID={`pending-trade-${entry.localId}`}>
+      <View style={styles.cardRow}>
+        <Text style={styles.tradeId}>{entry.payload.commodity ?? 'Trade'} · not yet synced</Text>
+        <View style={[styles.statusBadge, { backgroundColor: `${color}22` }]}>
+          <Text style={[styles.statusText, { color }]}>{failed ? 'SYNC FAILED' : 'PENDING SYNC'}</Text>
+        </View>
+      </View>
+      <Text style={styles.amount}>{formatAmount(entry.payload.amountUsdc, 'USDC')} USDC</Text>
+      {failed ? (
+        <>
+          <Text style={styles.pendingError}>{entry.error}</Text>
+          <View style={styles.pendingActions}>
+            <TouchableOpacity onPress={onRetry}>
+              <Text style={styles.pendingAction}>Retry</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onDismiss}>
+              <Text style={[styles.pendingAction, { color: '#6B7280' }]}>Discard</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : (
+        <Text style={styles.addressLabel}>Will be created when you're back online.</Text>
+      )}
+    </View>
+  );
+}
+
 export default function TradeListScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -91,6 +148,46 @@ export default function TradeListScreen({ navigation }: Props) {
   const { clearAuth } = useAuthStore();
   const [activeFilter, setActiveFilter] = useState<TradeStatus | 'ALL'>('ALL');
   const [refreshing, setRefreshing] = useState(false);
+  const { isOffline } = useNetworkStatus();
+  const {
+    pendingTrades,
+    load: loadPending,
+    sync: syncPending,
+    retry: retryPending,
+    dismiss: dismissPending,
+  } = usePendingTradeStore();
+
+  // Brief "copied" toast for the long-press action (issue #265).
+  const [toast, setToast] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback(
+    (message: string) => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setToast(message);
+      Animated.timing(toastOpacity, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+      toastTimer.current = setTimeout(() => {
+        Animated.timing(toastOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() =>
+          setToast(null)
+        );
+      }, 1800);
+    },
+    [toastOpacity]
+  );
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
+
+  const copyTradeId = useCallback(
+    async (tradeId: string) => {
+      await Clipboard.setStringAsync(tradeId);
+      showToast('Trade ID copied');
+    },
+    [showToast]
+  );
+
   // Two-column list/detail on tablets (#270). On phones the detail is a
   // separate stack screen, so the selection is only used in wide mode.
   const { isTwoColumn, listPaneWidth, contentStyle } = useResponsiveLayout();
@@ -119,6 +216,27 @@ export default function TradeListScreen({ navigation }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    void loadPending();
+  }, [loadPending]);
+
+  // Replay offline-created trades whenever we're (back) online, then refresh
+  // the list so synced trades show up as real ones (issue #268).
+  useEffect(() => {
+    if (isOffline) return;
+    void syncPending().then((result) => {
+      if (!result) return;
+      if (result.created.length > 0) load();
+      if (result.failed.length > 0) {
+        showToast(
+          result.failed.length === 1
+            ? 'An offline trade could not be created'
+            : `${result.failed.length} offline trades could not be created`
+        );
+      }
+    });
+  }, [isOffline, syncPending, load, showToast]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -233,7 +351,9 @@ export default function TradeListScreen({ navigation }: Props) {
         <FlatList
           data={trades}
           keyExtractor={(item) => item.tradeId}
-          contentContainerStyle={trades.length === 0 ? styles.emptyContainer : styles.listContent}
+          contentContainerStyle={
+            trades.length === 0 && pendingTrades.length === 0 ? styles.emptyContainer : styles.listContent
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -245,10 +365,29 @@ export default function TradeListScreen({ navigation }: Props) {
           renderItem={({ item }) => (
             <TradeCard
               trade={item}
+              onPress={() => navigation.navigate('TradeDetail', { tradeId: item.tradeId })}
+              onLongPress={() => void copyTradeId(item.tradeId)}
               selected={isTwoColumn && item.tradeId === effectiveSelectedId}
+              onLongPress={() => void copyTradeId(item.tradeId)}
               onPress={() => openTrade(item.tradeId)}
             />
           )}
+          ListHeaderComponent={
+            pendingTrades.length > 0 ? (
+              <View style={styles.pendingList}>
+                {pendingTrades.map((p) => (
+                  <PendingTradeCard
+                    key={p.localId}
+                    entry={p}
+                    onRetry={() => {
+                      void retryPending(p.localId).then(() => (isOffline ? undefined : syncPending()));
+                    }}
+                    onDismiss={() => void dismissPending(p.localId)}
+                  />
+                ))}
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📦</Text>
@@ -280,6 +419,16 @@ export default function TradeListScreen({ navigation }: Props) {
         </View>
       ) : null}
       </View>
+      {toast ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.toast, { opacity: toastOpacity, bottom: insets.bottom + 24 }]}
+          accessibilityLiveRegion="polite"
+          testID="trade-list-toast"
+        >
+          <Text style={styles.toastText}>{toast}</Text>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -347,4 +496,18 @@ const styles = StyleSheet.create({
   amount: { fontSize: 20, fontWeight: '700', color: '#1a3a1a' },
   addressLabel: { fontSize: 12, color: '#6b7a6b' },
   address: { color: '#1a3a1a', fontWeight: '600' },
+  pendingList: { gap: 12, marginBottom: 12 },
+  pendingCard: { borderWidth: 1, borderStyle: 'dashed', borderColor: '#cbd5cb' },
+  pendingError: { fontSize: 12, color: '#B91C1C' },
+  pendingActions: { flexDirection: 'row', gap: 16 },
+  pendingAction: { fontSize: 13, fontWeight: '700', color: '#2d6a2d' },
+  toast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    backgroundColor: '#1a3a1a',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  toastText: { color: '#fff', fontSize: 13, fontWeight: '600' },
 });
