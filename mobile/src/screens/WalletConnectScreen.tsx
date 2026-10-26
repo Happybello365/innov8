@@ -13,9 +13,11 @@ import { useAuthStore } from '../stores/authStore';
 import { authApi } from '../api/auth';
 import { spacing } from '../constants/theme';
 
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 type Props = StackScreenProps<RootStackParamList, 'WalletConnect'>;
 
 export default function WalletConnectScreen({ navigation }: Props) {
+  const { contentStyle } = useResponsiveLayout();
   const [connecting, setConnecting] = useState(false);
   const { setWalletAddress, setToken } = useAuthStore();
 
@@ -55,7 +57,7 @@ export default function WalletConnectScreen({ navigation }: Props) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, contentStyle]}>
       <View style={styles.hero}>
         <Text style={styles.logo}>🌾</Text>
         <Text style={styles.title}>Amana</Text>

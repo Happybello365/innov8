@@ -53,6 +53,20 @@ The corresponding `ErrorCode` enum values (in `backend/src/errors/errorCodes.ts`
 
 ---
 
+## Evidence limit (Issues #8, #272)
+
+`submit_evidence` panics with `Evidence limit per party exceeded` when the
+caller has already submitted `MAX_EVIDENCE_PER_PARTY` (10) records for the
+trade. The cap is per submitter (buyer, seller and each mediator count
+separately) and per trade.
+
+Clients must not hardcode the cap. Read it with the auth-free getter
+`get_max_evidence_per_party()`; the backend does this in
+`ContractService.getMaxEvidencePerParty()` and returns it as
+`limits.maxEvidencePerParty` on `GET /trades/:id/evidence`.
+`contracts/amana_escrow/src/tests/evidence_cap_tests.rs` drives the boundary
+tests from the getter's value, so the getter and the enforced cap cannot drift.
+
 ## Timelock Error Codes (Issue #189)
 
 Emitted by the timelock queue/execute flow (`pub mod timelock_errors`).

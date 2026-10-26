@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Linking, Pressable } from 'react-na
 import * as Notifications from 'expo-notifications';
 import { HELP_URL } from '../constants/support';
 
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -52,8 +53,8 @@ function HomeLoadingSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function HomeScreen() {
+  const { contentStyle } = useResponsiveLayout();
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
@@ -78,7 +79,7 @@ export default function HomeScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={[styles.container, contentStyle]}>
       <View style={styles.header}>
         <Text style={styles.title}>Stellar Mobile</Text>
         <Text style={styles.subtitle}>Trust as a Service for Agricultural Products</Text>

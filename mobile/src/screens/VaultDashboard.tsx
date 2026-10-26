@@ -20,6 +20,7 @@ import type { Trade } from '../types/trade';
 import type { RootStackParamList } from '../types/navigation';
 import { goalsApi, GoalSummary } from '../api/goals';
 
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 const ACTIVE_STATUSES = new Set(['FUNDED', 'IN_TRANSIT'] as const);
 
 function SkeletonBox({ width, height }: { width: number | string; height: number }) {
@@ -54,6 +55,7 @@ function TradeRow({ trade }: { trade: Trade }) {
 }
 
 export default function VaultDashboard() {
+  const { contentStyle } = useResponsiveLayout();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const [goals, setGoals] = useState<GoalSummary[]>([]);
@@ -232,7 +234,7 @@ export default function VaultDashboard() {
             <Text style={styles.emptyText}>No trades yet</Text>
           </View>
         }
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, contentStyle]}
       />
     </View>
   );
