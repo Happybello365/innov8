@@ -196,6 +196,24 @@ mod gas_footprint_tests {
     }
 
     #[test]
+    fn test_gas_list_mediators() {
+        let ctx = Ctx::new(10_000);
+        let client = ctx.client();
+        // Ctx::new already registered one mediator; add four more for a
+        // five-entry registry.
+        for _ in 0..4 {
+            client.add_mediator(&Address::generate(&ctx.env));
+        }
+        assert_eq!(client.list_mediators().len(), 5);
+
+        let cost = ctx.measure(|| {
+            client.list_mediators();
+        });
+
+        cost.assert_under("list_mediators_5", "list_mediators_5");
+    }
+
+    #[test]
     fn test_gas_full_dispute_lifecycle_combined() {
         let ctx = Ctx::new(10_000);
         let client = ctx.client();
