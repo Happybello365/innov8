@@ -13,9 +13,10 @@ import { initializeTracing } from "./config/tracing";
 import { HealthService } from "./services/health.service";
 import { QueueMetricsService } from "./services/queueMetrics.service";
 import { createReconciliationWorker } from "./jobs/workers/reconciliation.worker";
+import { createTreasuryReconciliationWorker } from "./jobs/workers/treasuryReconciliation.worker";
 import { createWebhookSecretPurgeWorker } from "./jobs/workers/webhookSecretPurge.worker";
 import { createPiiLogScannerWorker } from "./jobs/workers/piiLogScanner.worker";
-import { reconciliationQueue, piiScanQueue, webhookSecretPurgeQueue, closeAllQueueConnections } from "./jobs/queue";
+import { reconciliationQueue, piiScanQueue, webhookSecretPurgeQueue, treasuryReconciliationQueue, closeAllQueueConnections } from "./jobs/queue";
 import { redis } from "./lib/redis";
 import { ShutdownOrchestrator, Shutdownable } from "./lib/shutdown";
 import { formatConfigFingerprint } from "./config/env";
@@ -90,6 +91,7 @@ const healthService = new HealthService();
 const queueMetricsService = new QueueMetricsService();
 
 let reconciliationWorker: ReturnType<typeof createReconciliationWorker> | undefined;
+let treasuryReconciliationWorker: ReturnType<typeof createTreasuryReconciliationWorker> | undefined;
 let webhookSecretPurgeWorker: ReturnType<typeof createWebhookSecretPurgeWorker> | undefined;
 let piiLogScannerWorker: ReturnType<typeof createPiiLogScannerWorker> | undefined;
 
@@ -116,6 +118,23 @@ async function startReconciliationCron() {
     appLogger.info("Reconciliation daily sweep scheduled (02:00 UTC)");
   } catch (error) {
     appLogger.error({ error }, "Failed to start reconciliation cron");
+  }
+}
+
+async function startTreasuryReconciliationCron() {
+  try {
+    treasuryReconciliationWorker = createTreasuryReconciliationWorker();
+    appLogger.info("Treasury reconciliation worker started");
+
+    // Schedule nightly at 03:00 UTC — offset from the account reconciliation sweep.
+    await treasuryReconciliationQueue.add(
+      "nightly-treasury-recon",
+      {},
+      { repeat: { pattern: "0 3 * * *" } },
+    );
+    appLogger.info("Treasury reconciliation nightly sweep scheduled (03:00 UTC)");
+  } catch (error) {
+    appLogger.error({ error }, "Failed to start treasury reconciliation cron");
   }
 }
 
@@ -196,6 +215,7 @@ async function bootstrap() {
     appLogger.info("QueueMetricsService started successfully");
 
     await startReconciliationCron();
+    await startTreasuryReconciliationCron();
     await startPiiScanCron();
     await startWebhookSecretPurge();
   });
@@ -229,6 +249,13 @@ async function bootstrap() {
         },
       },
       {
+        name: "treasury-reconciliation-worker",
+        stop: async () => {
+          if (treasuryReconciliationWorker) await treasuryReconciliationWorker.close();
+          else appLogger.info("Treasury reconciliation worker not running — skipping");
+        },
+      },
+      {
         name: "webhook-secret-purge-worker",
         stop: async () => {
           if (webhookSecretPurgeWorker) await webhookSecretPurgeWorker.close();
@@ -245,6 +272,7 @@ async function bootstrap() {
         name: "queue-connections",
         stop: async () => {
           await reconciliationQueue.close();
+          await treasuryReconciliationQueue.close();
           await piiScanQueue.close();
           await webhookSecretPurgeQueue.close();
           await closeAllQueueConnections();
