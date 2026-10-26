@@ -7,3 +7,5 @@ export { NetworkBackboneCard } from "./NetworkBackboneCard";
 export { VaultFooter } from "./VaultFooter";
 export { VaultDashboard } from "./VaultDashboard";
 export { PaymentOverviewCard } from "./PaymentOverviewCard";
+export { GoalContributionChart } from "./GoalContributionChart";
+export type { GoalContributionChartProps } from "./GoalContributionChart";
