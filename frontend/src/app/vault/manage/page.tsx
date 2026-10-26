@@ -14,7 +14,9 @@ import {
   AuditLogCard,
   NetworkBackboneCard,
   VaultFooter,
+  GoalContributionChart,
 } from "@/components/vault";
+import { goalsApi } from "@/lib/api/goals";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -346,6 +348,11 @@ export default function VaultManagePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Goal contribution chart state
+  const [goalIds, setGoalIds] = useState<string[]>([]);
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [goalsLoading, setGoalsLoading] = useState(false);
+
   // UI state
   const [activeTab, setActiveTab] = useState<"active" | "all">("active");
   const [modal, setModal] = useState<ActionModal>(null);
@@ -378,9 +385,29 @@ export default function VaultManagePage() {
     }
   }, [token]);
 
+  const fetchGoals = useCallback(async () => {
+    if (!token) return;
+    setGoalsLoading(true);
+    try {
+      const analytics = await goalsApi.getAnalytics(token);
+      const ids = analytics.goals.map((g) => g.goalId);
+      setGoalIds(ids);
+      if (ids.length > 0) setSelectedGoalId((prev) => prev ?? ids[0]);
+    } catch {
+      // Goals section degrades gracefully — missing goals don't break the page
+    } finally {
+      setGoalsLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (isAuthenticated && token) void fetchData();
   }, [isAuthenticated, token, fetchData]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (isAuthenticated && token) void fetchGoals();
+  }, [isAuthenticated, token, fetchGoals]);
 
   // Derived
   const displayedTrades =
@@ -797,6 +824,50 @@ export default function VaultManagePage() {
                 />
               </div>
             </div>
+
+            {/* ── Goal Contribution History ── */}
+            {(goalIds.length > 0 || goalsLoading) && token && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-text-primary">
+                      Goal Contribution History
+                    </h2>
+                    <p className="text-xs text-text-secondary mt-0.5">
+                      Track contributions to your savings goals over time.
+                    </p>
+                  </div>
+                  {goalIds.length > 1 && (
+                    <select
+                      aria-label="Select savings goal"
+                      value={selectedGoalId ?? ""}
+                      onChange={(e) => setSelectedGoalId(e.target.value)}
+                      className="rounded-lg border border-border-default bg-bg-input text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-border-focus w-full sm:w-auto"
+                    >
+                      {goalIds.map((id) => (
+                        <option key={id} value={id}>
+                          Goal {id.slice(0, 8)}…
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {goalsLoading ? (
+                  <div
+                    className="rounded-2xl border border-border-default bg-card p-5 h-52 animate-pulse"
+                    aria-busy="true"
+                    aria-label="Loading goals"
+                  />
+                ) : selectedGoalId ? (
+                  <GoalContributionChart
+                    key={selectedGoalId}
+                    goalId={selectedGoalId}
+                    token={token}
+                  />
+                ) : null}
+              </div>
+            )}
 
             {/* ── Network backbone ── */}
             <NetworkBackboneCard description="Secured and powered by the Stellar network for instantaneous cross-border settlement and verifiable transparency." />
