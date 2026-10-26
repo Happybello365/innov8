@@ -20,9 +20,22 @@ spec:
       labels:
         app: backend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
           image: kingfrankhood/innov8-backend:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 4000
               name: http
@@ -86,6 +99,9 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           # Startup probe: gives the container time to initialise before
           # liveness/readiness take over. Uses /health/startup which checks
           # critical deps + config + admin signing key.
@@ -123,6 +139,9 @@ spec:
                   - /bin/sh
                   - -c
                   - sleep 10
+      volumes:
+        - name: tmp
+          emptyDir: {}
       # Tune termination grace to accommodate: preStop sleep (10s) + interval
       # between preStop and SIGTERM + bounded drain (<30s). Explicit value
       # guarantees the orchestrator's force-exit timer fires before the
