@@ -10,7 +10,12 @@ export function ToastContainer() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-full max-w-md pointer-events-none sm:top-6 sm:right-6">
+    <div
+      aria-live="polite"
+      aria-atomic="false"
+      aria-label="Notifications"
+      className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-full max-w-md pointer-events-none sm:top-6 sm:right-6"
+    >
       {toasts.map((toast) => (
         <Toast
           key={toast.id}

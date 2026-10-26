@@ -13,7 +13,7 @@ spec:
         - "amanavault.com"
         - "www.amanavault.com"
         - "api.amanavault.com"
-      secretName: amanavault-tls
+      secretName: innov8-tls
   rules:
     - host: "amanavault.com"
       http:

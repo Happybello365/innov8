@@ -125,6 +125,9 @@ pub const DEFAULT_QUORUM_VOTE_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
 /// permitted once the window closes.
 pub const DEFAULT_QUORUM_FALLBACK_MIN_WEIGHT: u32 = 2;
 
+/// Reason recorded when `pause()` is called without one (#275).
+pub const DEFAULT_PAUSE_REASON: &str = "unspecified";
+
 /// Weight assigned to a mediator with no explicit weight configured.
 pub const DEFAULT_MEDIATOR_WEIGHT: u32 = 1;
 
@@ -712,6 +715,22 @@ pub struct QuorumConfig {
     pub fallback_min_weight: u32,
 }
 
+/// A registered mediator and the vote weight it currently carries (#274).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MediatorInfo {
+    pub address: Address,
+    pub weight: u32,
+}
+
+/// Why and when the contract was last paused (#275).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PauseMetadata {
+    pub reason: soroban_sdk::String,
+    pub paused_at: u64,
+}
+
 /// A single mediator's weighted vote on a disputed trade (#195).
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -907,6 +926,12 @@ pub enum DataKey {
     /// `accept_admin()`. Absent means no transfer is in progress.
     /// Stored in instance storage alongside `Admin` (#1).
     PendingAdmin,
+    /// Ordered list of every address currently in the mediator registry, kept
+    /// in step with `MediatorRegistry(Address)` so `list_mediators()` can
+    /// enumerate without replaying events (#274).
+    MediatorList,
+    /// Reason and timestamp recorded by the most recent `pause()` (#275).
+    PauseMetadata,
 }
 
 #[contracttype]
@@ -1020,6 +1045,32 @@ impl EscrowContract {
         }
     }
 
+    /// Appends `mediator` to the enumerable mediator list if absent (#274).
+    fn index_mediator(env: &Env, mediator: &Address) {
+        let mut list: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(env));
+        if list.first_index_of(mediator.clone()).is_none() {
+            list.push_back(mediator.clone());
+            env.storage().persistent().set(&DataKey::MediatorList, &list);
+        }
+    }
+
+    /// Drops `mediator` from the enumerable mediator list if present (#274).
+    fn unindex_mediator(env: &Env, mediator: &Address) {
+        let mut list: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(env));
+        if let Some(idx) = list.first_index_of(mediator.clone()) {
+            list.remove(idx);
+            env.storage().persistent().set(&DataKey::MediatorList, &list);
+        }
+    }
+
     /// Panics with "contract is paused" when the global pause flag is set.
     /// Call this at the top of every state-changing entrypoint.
     fn assert_not_paused(env: &Env) {
@@ -1116,6 +1167,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::MediatorRegistry(mediator.clone()), &true);
+        Self::index_mediator(&env, &mediator);
         MediatorAddedEvent {
             mediator: mediator.clone(),
         }
@@ -1138,6 +1190,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::MediatorRegistry(mediator_address.clone()), &true);
+        Self::index_mediator(&env, &mediator_address);
         MediatorAddedEvent {
             mediator: mediator_address,
         }
@@ -1160,6 +1213,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .remove(&DataKey::MediatorRegistry(mediator_address.clone()));
+        Self::unindex_mediator(&env, &mediator_address);
 
         // Clear legacy slot if it points to the same address
         if let Some(legacy) = env
@@ -1175,6 +1229,24 @@ impl EscrowContract {
             mediator: mediator_address,
         }
         .publish(&env);
+    }
+
+    /// Returns every address currently in the mediator registry together with
+    /// its vote weight (unconfigured mediators carry [`DEFAULT_MEDIATOR_WEIGHT`]).
+    /// The set matches the addresses for which `is_mediator` returns `true`.
+    /// Read-only; callable by anyone.
+    pub fn list_mediators(env: Env) -> Vec<MediatorInfo> {
+        let addresses: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(&env));
+        let mut out: Vec<MediatorInfo> = Vec::new(&env);
+        for address in addresses.iter() {
+            let weight = Self::get_mediator_weight(env.clone(), address.clone());
+            out.push_back(MediatorInfo { address, weight });
+        }
+        out
     }
 
     /// Returns `true` if `address` is currently in the approved mediator registry.
@@ -1228,7 +1300,17 @@ impl EscrowContract {
     }
 
     /// Pauses all state-changing contract operations. Caller must be a guardian.
+    /// Records [`DEFAULT_PAUSE_REASON`] as the reason; use `pause_with_reason`
+    /// to supply one.
     pub fn pause(env: Env, guardian: Address) {
+        let reason = soroban_sdk::String::from_str(&env, DEFAULT_PAUSE_REASON);
+        Self::pause_with_reason(env, guardian, reason);
+    }
+
+    /// Pauses the contract and stores `reason` plus the current ledger
+    /// timestamp, readable through `get_pause_metadata()`. Caller must be a
+    /// guardian (#275).
+    pub fn pause_with_reason(env: Env, guardian: Address, reason: soroban_sdk::String) {
         guardian.require_auth();
         assert!(
             env.storage()
@@ -1238,6 +1320,13 @@ impl EscrowContract {
             "caller is not a guardian"
         );
         env.storage().instance().set(&DataKey::Paused, &true);
+        env.storage().instance().set(
+            &DataKey::PauseMetadata,
+            &PauseMetadata {
+                reason,
+                paused_at: env.ledger().timestamp(),
+            },
+        );
         Self::bump_instance_ttl(&env);
     }
 
@@ -1263,6 +1352,13 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+    }
+
+    /// Returns the reason and timestamp of the most recent pause, or `None` if
+    /// the contract has never been paused (#275). The record is retained after
+    /// `unpause()` as an audit trail; check `is_paused()` for current state.
+    pub fn get_pause_metadata(env: Env) -> Option<PauseMetadata> {
+        env.storage().instance().get(&DataKey::PauseMetadata)
     }
 
     // -----------------------------------------------------------------------

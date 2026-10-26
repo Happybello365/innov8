@@ -33,7 +33,12 @@ export default function AboutScreen({ navigation }: Props) {
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.background }]}>
       <View style={[styles.header, { backgroundColor: theme.headerBg, borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={[styles.backBtn, { color: theme.primary }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>About</Text>
@@ -47,6 +52,15 @@ export default function AboutScreen({ navigation }: Props) {
           <InfoRow label="Network" value={network} theme={theme} />
           <InfoRow label="API Base URL" value={apiBaseUrl} theme={theme} mono last />
         </View>
+
+        <TouchableOpacity
+          style={[styles.supportBtn, { backgroundColor: theme.primary }]}
+          onPress={() => navigation.navigate('SecuritySettings')}
+          accessibilityRole="button"
+          accessibilityLabel="Security settings"
+        >
+          <Text style={[styles.supportBtnText, { color: theme.primaryText }]}>Security Settings</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.supportBtn, { backgroundColor: theme.primary }]}

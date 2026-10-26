@@ -24,8 +24,7 @@ export function BentoCard({
   return (
     <div
       className={[
-        "bg-[#101E18F2]",
-        "dark:bg-surface-1",
+        "bg-surface-1",
         "border border-border-default",
         "dark:border-border-default",
         "rounded-2xl",

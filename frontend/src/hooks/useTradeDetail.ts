@@ -14,9 +14,8 @@
  * Old: useTradeDetails(token, id)     → NEW: useTradeDetail(id)        ✅ token from useAuth
  * Old: useCachedTradeDetail(tradeId)  → NEW: useTradeDetail(tradeId)   ✅ same, cache included
  *
- * The legacy files (useTradeDetails.ts, useCachedTradeDetail.ts) have been
- * kept as thin re-export shims for backward compatibility during the
- * migration window; they will be removed once all callers are updated.
+ * The legacy `useCachedTradeDetail.ts` shim has been kept for backward
+ * compatibility; `useTradeDetails.ts` has been removed (#216).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";

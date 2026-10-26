@@ -34,8 +34,8 @@ interface UseDeepLinkReturn {
   pendingDeepLink: DeepLinkTarget | null;
   /** Parse a raw URL (cold-start or runtime) and route or park it. */
   handleUrl: (url: string | null | undefined, navigation?: NavigationContainerRef<RootStackParamList> | null) => void;
-  /** Park an already-parsed target (kept for backwards compat + tests). */
-  handleDeepLink: (target: DeepLinkTarget) => void;
+  /** Route or park an already-parsed target (e.g. from a push notification tap). */
+  handleDeepLink: (target: DeepLinkTarget, navigation?: NavigationContainerRef<RootStackParamList> | null) => void;
   /** Replay a parked link once the user is authenticated. */
   resumePendingDeepLink: (navigation: NavigationContainerRef<RootStackParamList> | null) => void;
 }
@@ -82,8 +82,8 @@ export function useDeepLink(): UseDeepLinkReturn {
   );
 
   const handleDeepLink = useCallback(
-    (target: DeepLinkTarget) => {
-      routeOrPark(target);
+    (target: DeepLinkTarget, navigation?: NavigationContainerRef<RootStackParamList> | null) => {
+      routeOrPark(target, navigation);
     },
     [routeOrPark],
   );

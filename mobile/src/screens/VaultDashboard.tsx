@@ -4,15 +4,21 @@ import {
   View,
   Text,
   FlatList,
+  ScrollView,
   RefreshControl,
   StyleSheet,
+  TouchableOpacity,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { StackNavigationProp } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTradeStore } from '../stores/tradeStore';
 import { useAuthStore } from '../stores/authStore';
 import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
 import type { Trade } from '../types/trade';
+import type { RootStackParamList } from '../types/navigation';
+import { goalsApi, GoalSummary } from '../api/goals';
 
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 const ACTIVE_STATUSES = new Set(['FUNDED', 'IN_TRANSIT'] as const);
@@ -51,6 +57,8 @@ function TradeRow({ trade }: { trade: Trade }) {
 export default function VaultDashboard() {
   const { contentStyle } = useResponsiveLayout();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
+  const [goals, setGoals] = useState<GoalSummary[]>([]);
   const {
     trades,
     isLoading,
@@ -69,6 +77,13 @@ export default function VaultDashboard() {
   useEffect(() => {
     void fetchTrades();
   }, [fetchTrades]);
+
+  useEffect(() => {
+    goalsApi
+      .listGoals()
+      .then((res) => setGoals(res?.goals ?? []))
+      .catch(() => setGoals([]));
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -106,7 +121,15 @@ export default function VaultDashboard() {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Vault Dashboard</Text>
         </View>
-        <LoadingSkeleton />
+        {/* Wrap in ScrollView so the user can pull-to-refresh even during
+            the initial skeleton load (mirrors TradeListScreen pattern). */}
+        <ScrollView
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2d6a2d" />
+          }
+        >
+          <LoadingSkeleton />
+        </ScrollView>
       </View>
     );
   }
@@ -171,6 +194,36 @@ export default function VaultDashboard() {
                 <Text style={styles.statUnit}>in progress</Text>
               </View>
             </View>
+            <TouchableOpacity
+              style={styles.linkRow}
+              onPress={() => navigation.navigate('ReputationHistory')}
+              accessibilityRole="button"
+              testID="reputation-history-link"
+            >
+              <Text style={styles.linkText}>View reputation history →</Text>
+            </TouchableOpacity>
+            {goals.length > 0 ? (
+              <>
+                <Text style={styles.sectionLabel}>Savings Goals</Text>
+                {goals.map((goal) => (
+                  <TouchableOpacity
+                    key={goal.goalId}
+                    style={styles.goalRow}
+                    onPress={() =>
+                      navigation.navigate('GoalContributionHistory', { goalId: goal.goalId })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`View contribution history for goal, ${goal.currentAmountUsdc} of ${goal.targetAmountUsdc} USDC saved`}
+                    testID={`goal-row-${goal.goalId}`}
+                  >
+                    <Text style={styles.tradeAmount}>
+                      {goal.currentAmountUsdc} / {goal.targetAmountUsdc} USDC
+                    </Text>
+                    <Text style={styles.linkText}>History →</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            ) : null}
             <Text style={styles.sectionLabel}>Recent Trades</Text>
           </>
         }
@@ -248,6 +301,17 @@ const styles = StyleSheet.create({
   statusActive: { backgroundColor: '#10b981' },
   statusInactive: { backgroundColor: '#d1d5db' },
   separator: { height: 8 },
+  linkRow: { paddingVertical: 8, marginBottom: 8 },
+  linkText: { fontSize: 13, fontWeight: '600', color: '#2d6a2d' },
+  goalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 8,
+  },
   empty: { alignItems: 'center', paddingVertical: 32 },
   emptyText: { color: '#6b7280', fontSize: 14 },
   skeletonContainer: { padding: 16, gap: 12 },
