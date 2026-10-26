@@ -18,6 +18,7 @@ jest.mock("../lib/metrics", () => ({
   recordTradeGmv: jest.fn(),
 }));
 
+import { recordTradeFunnelEvent } from "../lib/metrics";
 import {
   handleTradeCreated,
   handleTradeFunded,
@@ -68,6 +69,15 @@ describe("event handlers notify watchers once per applied transition", () => {
 
     expect(mockNotifyWatchers).toHaveBeenCalledTimes(1);
     expect(mockNotifyWatchers).toHaveBeenCalledWith("t-1", to, { ledger: 77 });
+  });
+
+  it("records a distinct KPI event when a dispute is resolved", async () => {
+    await handleDisputeResolved(
+      txWith(TradeStatus.DISPUTED),
+      event(EventType.DisputeResolved),
+    );
+
+    expect(recordTradeFunnelEvent).toHaveBeenCalledWith("dispute_resolved");
   });
 
   it.each(cases)("%s: a replayed event that does not transition notifies nobody", async (_n, handler, eventType, _from, to) => {

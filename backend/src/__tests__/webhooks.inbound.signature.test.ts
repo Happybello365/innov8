@@ -51,6 +51,8 @@ const DEFAULT_SECRETS = JSON.stringify({
 });
 
 import { recordWebhookSignatureVerification } from "../lib/metrics";
+import { appLogger } from "../middleware/logger";
+import { ErrorCode } from "../errors/errorCodes";
 import {
   captureRawBody,
   computeWebhookSignature,
@@ -340,6 +342,44 @@ describe("inbound webhook signature verification", () => {
     const res = await signedPost(app, "stellar-anchor", { event: "deposit.completed" });
 
     expect(res.status).toBe(500);
+  });
+
+  it("returns 404 with a typed error body for unrecognized event types", async () => {
+    const warnSpy = jest.spyOn(appLogger, "warn");
+    const res = await signedPost(app, "stellar-anchor", {
+      event: "partner.misconfigured.unknown_event",
+      amount: "100.00",
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({
+      code: ErrorCode.NOT_FOUND,
+      error: "Unknown webhook event type",
+      message: expect.stringContaining("partner.misconfigured.unknown_event"),
+      details: {
+        provider: "stellar-anchor",
+        eventType: "partner.misconfigured.unknown_event",
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "stellar-anchor",
+        eventType: "partner.misconfigured.unknown_event",
+      }),
+      expect.stringContaining("Unknown webhook event type"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("returns 404 when event type is missing from payload", async () => {
+    const res = await signedPost(app, "stellar-anchor", {
+      amount: "100.00",
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe(ErrorCode.NOT_FOUND);
+    expect(handler).not.toHaveBeenCalled();
   });
 });
 

@@ -74,7 +74,7 @@ describe("Business KPI metrics (#232)", () => {
     it("records all supported funnel event types without throwing", () => {
       const allEvents: TradeFunnelEvent[] = [
         "created", "funded", "delivered", "released",
-        "refunded", "disputed", "expired", "cancelled",
+        "refunded", "disputed", "dispute_resolved", "expired", "cancelled",
       ];
       expect(() => allEvents.forEach(recordTradeFunnelEvent)).not.toThrow();
     });

@@ -22,6 +22,44 @@ interface DeliveryTarget {
 const sign = (secret: string, body: string) =>
   crypto.createHmac("sha256", secret).update(body).digest("hex");
 
+/** Set of recognized inbound/outbound event types. */
+export const RECOGNIZED_WEBHOOK_EVENTS: ReadonlySet<string> = new Set([
+  "deposit.completed",
+  "deposit.created",
+  "deposit.failed",
+  "deposit.pending",
+  "charge.settled",
+  "charge.created",
+  "charge.failed",
+  "charge.pending",
+  "payout.released",
+  "payout.created",
+  "payout.failed",
+  "trade.created",
+  "trade.pending_signature",
+  "trade.pending_deposit",
+  "trade.funded",
+  "trade.delivered",
+  "trade.completed",
+  "trade.cancelled",
+  "trade.disputed",
+]);
+
+/** Returns true if the event type string is recognized by the webhook system. */
+export function isRecognizedWebhookEvent(event: unknown): boolean {
+  if (typeof event !== "string" || !event.trim()) {
+    return false;
+  }
+  const normalized = event.trim().toLowerCase();
+  return (
+    RECOGNIZED_WEBHOOK_EVENTS.has(normalized) ||
+    normalized.startsWith("trade.") ||
+    normalized.startsWith("deposit.") ||
+    normalized.startsWith("payout.") ||
+    normalized.startsWith("charge.")
+  );
+}
+
 /** Builds `v1=<sig>` entries for the current secret and, during the grace window, the previous one. */
 export function buildSignatureHeader(
   body: string,

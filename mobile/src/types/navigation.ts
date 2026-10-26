@@ -8,6 +8,10 @@ export type RootStackParamList = {
   CreateTrade: undefined;
   EvidenceCapture: { tradeId: string };
   VaultDashboard: undefined;
+  /** #261 — contribution history for one savings goal */
+  GoalContributionHistory: { goalId: string };
+  /** #262 — reputation score trend */
+  ReputationHistory: undefined;
   AdminStreamsOverview: undefined;
   AdminTradesBatch: undefined;
   AdminContract: undefined;
@@ -22,4 +26,8 @@ export type RootStackParamList = {
   NotificationsInbox: undefined;
   /** #92 — app version and build info */
   About: undefined;
+  /** #260 — notification preferences (quiet hours) */
+  NotificationPreferences: undefined;
+  /** #258 — biometric lock settings */
+  SecuritySettings: undefined;
 };
