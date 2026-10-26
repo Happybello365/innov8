@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { Eye, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import React, { useState } from "react";
+import { Eye, ArrowDownToLine, ArrowUpFromLine, Link2, Check } from "lucide-react";
 import type { TradeStatus } from "@/types/trade";
 
 export interface TradeListItemProps {
@@ -43,6 +43,30 @@ export function TradeListItem({
   onWithdraw,
 }: TradeListItemProps) {
   const statusStyle = STATUS_STYLES[status] ?? STATUS_STYLES["DRAFT"];
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyLink = async (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/trades/${tradeId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for environments where clipboard API is unavailable
+      const textarea = document.createElement("textarea");
+      textarea.value = url;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
     <div
@@ -97,6 +121,25 @@ export function TradeListItem({
         </span>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleCopyLink}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleCopyLink(e);
+              }
+            }}
+            aria-label={copied ? `Link copied for trade ${tradeId}` : `Copy link to trade ${tradeId}`}
+            title={copied ? "Link copied!" : "Copy link"}
+            className="p-2 rounded-lg border border-border-default text-text-muted hover:border-border-hover hover:text-text-primary transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2"
+          >
+            {copied ? (
+              <Check aria-hidden="true" className="w-4 h-4 text-status-success" />
+            ) : (
+              <Link2 aria-hidden="true" className="w-4 h-4" />
+            )}
+          </button>
+
           <button
             onClick={(e) => {
               e.stopPropagation();
