@@ -14,4 +14,5 @@ pub mod trade_data_tests;
 pub mod trade_history_tests;
 pub mod ttl_tests;
 pub mod withdraw_fees_tests;
+pub mod per_asset_pause_tests;
 pub mod evidence_cap_tests;

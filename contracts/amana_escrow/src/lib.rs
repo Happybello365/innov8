@@ -922,6 +922,8 @@ pub enum DataKey {
     AllowedAsset(Address),
     /// Per-asset decimal precision (u32), stored alongside AllowedAsset.
     AssetDecimals(Address),
+    /// Per-asset pause flag — when true, trading in this specific asset is blocked (#290).
+    AssetPaused(Address),
     /// Admin-configured `ExtensionPolicy`. Absent until an admin sets one, in
     /// which case the DEFAULT_MAX_* constants apply (#194).
     ExtensionPolicy,
@@ -1103,6 +1105,16 @@ impl EscrowContract {
             .get(&DataKey::Paused)
             .unwrap_or(false);
         assert!(!paused, "contract is paused");
+    }
+
+    /// Panics with "asset is paused" when the per-asset pause flag is set for `asset` (#290).
+    fn assert_asset_not_paused(env: &Env, asset: &Address) {
+        let paused: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AssetPaused(asset.clone()))
+            .unwrap_or(false);
+        assert!(!paused, "asset is paused");
     }
 
     // -----------------------------------------------------------------------
@@ -1377,6 +1389,46 @@ impl EscrowContract {
             .unwrap_or(false)
     }
 
+    /// Pauses trading for a specific asset (#290). Caller must be a guardian.
+    pub fn pause_asset(env: Env, guardian: Address, asset: Address) {
+        guardian.require_auth();
+        assert!(
+            env.storage()
+                .persistent()
+                .get::<_, bool>(&DataKey::GuardianRegistry(guardian))
+                .unwrap_or(false),
+            "caller is not a guardian"
+        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::AssetPaused(asset), &true);
+        Self::bump_instance_ttl(&env);
+    }
+
+    /// Unpauses trading for a specific asset (#290). Caller must be a guardian.
+    pub fn unpause_asset(env: Env, guardian: Address, asset: Address) {
+        guardian.require_auth();
+        assert!(
+            env.storage()
+                .persistent()
+                .get::<_, bool>(&DataKey::GuardianRegistry(guardian))
+                .unwrap_or(false),
+            "caller is not a guardian"
+        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::AssetPaused(asset), &false);
+        Self::bump_instance_ttl(&env);
+    }
+
+    /// Returns true when trading in the given asset is currently paused (#290).
+    pub fn is_asset_paused(env: Env, asset: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::AssetPaused(asset))
+            .unwrap_or(false)
+    }
+
     /// Returns the reason and timestamp of the most recent pause, or `None` if
     /// the contract has never been paused (#275). The record is retained after
     /// `unpause()` as an audit trail; check `is_paused()` for current state.
@@ -1438,6 +1490,97 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .get(&DataKey::AssetDecimals(asset))
+    }
+
+    /// Creates a trade with an explicit allowed asset (#290).
+    /// Checks both the global pause and the per-asset pause flag.
+    pub fn create_trade_with_asset(
+        env: Env,
+        buyer: Address,
+        seller: Address,
+        token: Address,
+        amount: i128,
+        buyer_loss_bps: u32,
+        seller_loss_bps: u32,
+        expires_at: Option<u64>,
+    ) -> u64 {
+        Self::assert_not_paused(&env);
+        Self::assert_asset_not_paused(&env, &token);
+        buyer.require_auth();
+        assert!(amount > 0, "amount must be greater than zero");
+        assert!(amount <= MAX_TRADE_VALUE, "TradeValueTooLarge");
+        assert!(
+            buyer != seller,
+            "buyer and seller must be different addresses"
+        );
+        assert!(
+            buyer_loss_bps <= 10_000,
+            "buyer_loss_bps must not exceed 10000"
+        );
+        assert!(
+            seller_loss_bps <= 10_000,
+            "seller_loss_bps must not exceed 10000"
+        );
+        assert!(
+            buyer_loss_bps + seller_loss_bps == 10_000,
+            "loss ratios must sum to 10000 (100%)"
+        );
+        let now = env.ledger().timestamp();
+        if let Some(deadline) = expires_at {
+            assert!(deadline > now, "expires_at must be in the future");
+        }
+        let next_id: u64 = env
+            .storage()
+            .instance()
+            .get(&NEXT_TRADE_ID)
+            .unwrap_or(1_u64);
+        let ledger_seq = env.ledger().sequence() as u64;
+        let trade_id = (ledger_seq << 32) | next_id;
+        env.storage().instance().set(&NEXT_TRADE_ID, &(next_id + 1));
+        let total_trades: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalTrades)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalTrades, &(total_trades + 1));
+        let trade = Trade {
+            trade_id,
+            buyer: buyer.clone(),
+            seller: seller.clone(),
+            token,
+            amount,
+            status: TradeStatus::Created,
+            created_at: now,
+            updated_at: now,
+            funded_at: None,
+            delivered_at: None,
+            buyer_loss_bps,
+            seller_loss_bps,
+            expires_at,
+        };
+        Self::save_trade(&env, &DataKey::Trade(trade_id), &trade);
+        env.storage().persistent().set(
+            &DataKey::ReleaseSequence(trade_id),
+            &Self::default_release_sequence(&trade),
+        );
+        Self::record_trade_event(
+            &env,
+            trade_id,
+            "created",
+            trade.buyer.clone(),
+            "trade created",
+        );
+        TradeCreatedEvent {
+            trade_id,
+            buyer,
+            seller,
+            amount,
+        }
+        .publish(&env);
+        Self::bump_instance_ttl(&env);
+        trade_id
     }
 
     /// Returns the persistent storage schema version of this contract instance.
@@ -2171,6 +2314,7 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::CngnContract)
             .expect("Not initialized");
+        Self::assert_asset_not_paused(&env, &cngn_address);
         let trade = Trade {
             trade_id,
             buyer: buyer.clone(),
@@ -2213,6 +2357,7 @@ impl EscrowContract {
         Self::assert_not_paused(&env);
         let key = DataKey::Trade(trade_id);
         let mut trade: Trade = Self::load_trade(&env, &key);
+        Self::assert_asset_not_paused(&env, &trade.token);
         assert!(
             matches!(trade.status, TradeStatus::Created),
             "Trade must be in Created status"

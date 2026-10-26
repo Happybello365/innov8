@@ -10,7 +10,7 @@ pub const EVENT_SCHEMA_VERSION: u32 = 1;
 ///
 /// Tests assert emitted topics against these constants, so a rename in
 /// the contract that is not reflected in the schema fails the suite.
-pub const EVENT_TOPICS: [(&str, &[&str]); 29] = [
+pub const EVENT_TOPICS: [(&str, &[&str]); 35] = [
     ("InitializedEvent", &["amana", "initialized"]),
     ("TradeCreatedEvent", &["TRDCRT"]),
     ("TradeFundedEvent", &["TRDFND"]),
@@ -40,10 +40,16 @@ pub const EVENT_TOPICS: [(&str, &[&str]); 29] = [
     ("ContractUpgradeQueued", &["UPGQUE"]),
     ("AdminTransferProposedEvent", &["ADMPRP"]),
     ("AdminTransferAcceptedEvent", &["ADMACC"]),
+    ("DisputeVoteCastEvent", &["DVOTE"]),
+    ("DisputeQuorumResolvedEvent", &["DQURES"]),
+    ("QuorumConfigUpdatedEvent", &["QURCFG"]),
+    ("MediatorWeightUpdatedEvent", &["MEDWGT"]),
+    ("DeadlineExtensionBudgetEvent", &["DEDBGT"]),
+    ("ExtensionPolicyUpdatedEvent", &["EXTPOL"]),
 ];
 
 /// Field names of every event, in declaration order.
-pub const EVENT_FIELDS: [(&str, &[&str]); 29] = [
+pub const EVENT_FIELDS: [(&str, &[&str]); 35] = [
     ("InitializedEvent", &["admin", "fee_bps", "timestamp"]),
     ("TradeCreatedEvent", &["trade_id", "buyer", "seller", "amount"]),
     ("TradeFundedEvent", &["trade_id", "amount"]),
@@ -73,4 +79,10 @@ pub const EVENT_FIELDS: [(&str, &[&str]); 29] = [
     ("ContractUpgradeQueued", &["operation_id", "new_wasm_hash", "queued_at", "execute_after"]),
     ("AdminTransferProposedEvent", &["current_admin", "pending_admin"]),
     ("AdminTransferAcceptedEvent", &["old_admin", "new_admin"]),
+    ("DisputeVoteCastEvent", &["trade_id", "mediator", "seller_gets_bps", "weight", "rationale_hash", "outcome_weight", "weight_to_quorum", "voted_at", "schema_version"]),
+    ("DisputeQuorumResolvedEvent", &["trade_id", "seller_gets_bps", "outcome", "winning_weight", "total_weight", "vote_count", "schema_version"]),
+    ("QuorumConfigUpdatedEvent", &["enabled", "value_threshold", "required_weight", "vote_window_secs", "fallback_min_weight", "schema_version"]),
+    ("MediatorWeightUpdatedEvent", &["mediator", "weight", "schema_version"]),
+    ("DeadlineExtensionBudgetEvent", &["trade_id", "extensions_used", "extensions_remaining", "original_deadline", "extended_by_secs", "extension_secs_remaining", "schema_version"]),
+    ("ExtensionPolicyUpdatedEvent", &["max_extensions", "max_total_extension_secs", "schema_version"]),
 ];
