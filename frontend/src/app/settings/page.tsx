@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useId, useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ConfirmActionModal } from "@/components/ui/ConfirmActionModal";
@@ -112,15 +112,19 @@ function SelectField({
   options: { value: string; label: string }[];
   error?: string;
 }) {
+  const inputId = useId();
+  const descriptionId = description ? `${inputId}-description` : undefined;
+  const errorId = error ? `${inputId}-error` : undefined;
+
   return (
     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
       <div className="flex-1">
-        <p className="text-sm font-medium text-text-primary">{label}</p>
+        <label htmlFor={inputId} className="text-sm font-medium text-text-primary">{label}</label>
         {description && (
-          <p className="text-xs text-text-secondary mt-0.5">{description}</p>
+          <p id={descriptionId} className="text-xs text-text-secondary mt-0.5">{description}</p>
         )}
         {error && (
-          <p className="text-xs text-status-danger mt-1 flex items-center gap-1">
+          <p id={errorId} className="text-xs text-status-danger mt-1 flex items-center gap-1">
             <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 10a1 1 0 110 2 1 1 0 010-2zm0-7a1 1 0 011 1v4a1 1 0 11-2 0V5a1 1 0 011-1z" />
             </svg>
@@ -129,10 +133,11 @@ function SelectField({
         )}
       </div>
       <select
+        id={inputId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={!!error}
-        aria-describedby={error ? `${label}-error` : undefined}
+        aria-describedby={[descriptionId, errorId].filter(Boolean).join(" ") || undefined}
         className={`rounded-lg border ${error ? "border-status-danger" : "border-border-default"} bg-bg-input text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-border-focus transition-colors sm:w-44`}
       >
         {options.map((opt) => (
