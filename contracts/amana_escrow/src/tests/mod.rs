@@ -1,5 +1,7 @@
 pub mod admin_transfer_tests;
+pub mod auth_matrix_exhaustive_tests;
 pub mod bps_fuzz_tests;
+pub mod dispute_summary_tests;
 pub mod event_schema_tests;
 pub mod fee_update_tests;
 pub mod fund_conservation_tests;

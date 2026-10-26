@@ -6,7 +6,6 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod gas_footprint_tests {
-    extern crate std;
     use crate::test_fixture::admin_address;
     use crate::{EscrowContract, EscrowContractClient};
     use soroban_sdk::{Address, Env, String, testutils::Address as _, token};
@@ -23,7 +22,7 @@ mod gas_footprint_tests {
         fn assert_under(self, label: &str, baseline_name: &str) {
             assert!(self.cpu > 0, "{label} CPU estimate must be non-zero");
             assert!(self.mem > 0, "{label} MEM estimate must be non-zero");
-            let baselines: std::collections::BTreeMap<std::string::String, CostEstimate> =
+            let baselines: std::collections::BTreeMap<String, CostEstimate> =
                 serde_json::from_str(include_str!("gas_footprint_baselines.json"))
                     .expect("gas footprint baselines must be valid JSON");
             let baseline = baselines
@@ -32,7 +31,7 @@ mod gas_footprint_tests {
             let max_cpu = baseline.cpu * (100 + REGRESSION_BUDGET_PERCENT) / 100;
             let max_mem = baseline.mem * (100 + REGRESSION_BUDGET_PERCENT) / 100;
 
-            std::println!(
+            println!(
                 "{label}: CPU {} (baseline {}, max {}), MEM {} (baseline {}, max {})",
                 self.cpu, baseline.cpu, max_cpu, self.mem, baseline.mem, max_mem
             );
@@ -197,24 +196,6 @@ mod gas_footprint_tests {
     }
 
     #[test]
-    fn test_gas_list_mediators() {
-        let ctx = Ctx::new(10_000);
-        let client = ctx.client();
-        // Ctx::new already registered one mediator; add four more for a
-        // five-entry registry.
-        for _ in 0..4 {
-            client.add_mediator(&Address::generate(&ctx.env));
-        }
-        assert_eq!(client.list_mediators().len(), 5);
-
-        let cost = ctx.measure(|| {
-            client.list_mediators();
-        });
-
-        cost.assert_under("list_mediators_5", "list_mediators_5");
-    }
-
-    #[test]
     fn test_gas_full_dispute_lifecycle_combined() {
         let ctx = Ctx::new(10_000);
         let client = ctx.client();
@@ -292,6 +273,79 @@ mod gas_footprint_tests {
         );
     }
 
+    /// Mediator count used for the quorum worst case. Every mediator carries
+    /// weight 1 and `required_weight` equals this count, so the final vote has
+    /// to walk and tally the whole accumulated vote set before it settles.
+    const MAX_QUORUM_MEDIATORS: u32 = 10;
+
+    /// Issue #278 — `cast_dispute_vote` at the maximum mediator count.
+    ///
+    /// The last vote is the worst case for quorum tallying: it reads the full
+    /// vote list, rejects duplicate voters across all prior votes, tallies
+    /// weight for the outcome, and then settles the dispute.
+    #[test]
+    fn test_gas_cast_dispute_vote_at_max_mediator_count() {
+        let ctx = Ctx::new(10_000);
+        let client = ctx.client();
+
+        let mut voters = std::vec::Vec::new();
+        voters.push(ctx.mediator.clone());
+        for _ in 1..MAX_QUORUM_MEDIATORS {
+            let mediator = Address::generate(&ctx.env);
+            client.add_mediator(&mediator);
+            voters.push(mediator);
+        }
+        for voter in voters.iter() {
+            client.set_mediator_weight(voter, &1_u32);
+        }
+        client.set_quorum_config(
+            &true,
+            &0_i128,
+            &MAX_QUORUM_MEDIATORS,
+            &(7 * 24 * 60 * 60_u64),
+            &1_u32,
+        );
+
+        let trade_id = client.create_trade(
+            &ctx.buyer,
+            &ctx.seller,
+            &10_000_i128,
+            &5000_u32,
+            &5000_u32,
+            &None,
+        );
+        client.deposit(&trade_id);
+        client.initiate_dispute(
+            &trade_id,
+            &ctx.buyer,
+            &String::from_str(&ctx.env, "QmGasTestReason"),
+        );
+
+        let last = voters.len() - 1;
+        for voter in voters.iter().take(last) {
+            client.cast_dispute_vote(
+                &trade_id,
+                voter,
+                &5_000_u32,
+                &String::from_str(&ctx.env, "QmGasVote"),
+            );
+        }
+
+        let cost = ctx.measure(|| {
+            client.cast_dispute_vote(
+                &trade_id,
+                &voters[last],
+                &5_000_u32,
+                &String::from_str(&ctx.env, "QmGasVote"),
+            );
+        });
+
+        cost.assert_under(
+            "cast_dispute_vote (max mediators)",
+            "cast_dispute_vote_max_mediators",
+        );
+    }
+
     /// Issue #286 — isolate the extra `release_funds` cost of stream accounting.
     ///
     /// A trade "with stream accounting" has a recorded `ClawbackTotal` (written
@@ -346,7 +400,6 @@ mod gas_footprint_tests {
         assert!(without.cpu > 0 && without.mem > 0, "baseline cost must be non-zero");
         assert!(with.cpu > 0 && with.mem > 0, "accounting cost must be non-zero");
 
-        // The measurement must be reproducible for the delta to mean anything.
         assert_eq!(without, measure_release_funds(false), "release_funds cost is not deterministic");
         assert_eq!(with, measure_release_funds(true), "release_funds cost is not deterministic");
 

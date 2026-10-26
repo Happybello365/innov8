@@ -756,6 +756,29 @@ pub struct QuorumState {
     pub opened_at: u64,
 }
 
+/// Aggregated view of a disputed trade's votes (#279).
+///
+/// Lets a client that polls for quorum progress read the tally in one small
+/// response instead of fetching every `MediatorVote` and summing off-chain.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisputeSummary {
+    /// Number of votes cast so far.
+    pub vote_count: u32,
+    /// Combined weight of every vote cast, across all outcomes.
+    pub total_weight: u32,
+    /// The outcome carrying the most weight (ties break to the lowest
+    /// `seller_gets_bps`). Zero when no votes have been cast.
+    pub leading_seller_gets_bps: u32,
+    /// Weight backing `leading_seller_gets_bps`.
+    pub leading_weight: u32,
+    /// Weight a single outcome needs to settle, from the active quorum config.
+    pub required_weight: u32,
+    /// True when the trade requires quorum and one outcome has reached
+    /// `required_weight`.
+    pub quorum_reached: bool,
+}
+
 /// How a quorum dispute was ultimately decided (#195).
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3463,6 +3486,40 @@ impl EscrowContract {
         Self::quorum_state(&env, trade_id)
             .map(|state| state.votes)
             .unwrap_or(Vec::new(&env))
+    }
+
+    /// Aggregated vote counts and quorum status for a disputed trade (#279).
+    ///
+    /// Read-only. `quorum_reached` is true exactly when `requires_quorum()` is
+    /// true for the trade and the weight behind the leading outcome has reached
+    /// `required_weight` — the same conclusion a client would otherwise reach by
+    /// fetching `get_dispute_votes()` and tallying it. `get_dispute_votes()` is
+    /// unchanged for callers that need the per-mediator detail.
+    pub fn get_dispute_summary(env: Env, trade_id: u64) -> DisputeSummary {
+        let config = Self::get_quorum_config(env.clone());
+        let votes = Self::quorum_state(&env, trade_id)
+            .map(|state| state.votes)
+            .unwrap_or(Vec::new(&env));
+
+        let (leading_seller_gets_bps, leading_weight) = if votes.is_empty() {
+            (0, 0)
+        } else {
+            Self::plurality_outcome(&votes)
+        };
+
+        // Evaluate `requires_quorum` last: it reads the trade, which the common
+        // "no quorum yet" poll does not need.
+        let quorum_reached = leading_weight >= config.required_weight
+            && Self::requires_quorum(env.clone(), trade_id);
+
+        DisputeSummary {
+            vote_count: votes.len(),
+            total_weight: Self::total_vote_weight(&votes),
+            leading_seller_gets_bps,
+            leading_weight,
+            required_weight: config.required_weight,
+            quorum_reached,
+        }
     }
 
     /// Cast a weighted vote on a high-value dispute (#195).
