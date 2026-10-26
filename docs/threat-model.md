@@ -128,6 +128,22 @@ Created → Funded → Delivered → Completed
 
 ---
 
+#### TH-E-05 — Single-Asset Incident / Depeg Cascading to Entire Escrow Platform
+
+| Field | Detail |
+|---|---|
+| **Target** | Platform availability & multi-asset trading |
+| **Vector** | An allowed asset experiences a sudden depeg, contract exploit, or issuer regulatory freeze. If the contract only supports a global pause (`pause()`), halting trading in the affected asset forces all trading across all unrelated assets to freeze as well. |
+| **Impact** | Unnecessary platform-wide denial of service; liquidity locked across healthy asset pairs. |
+| **Likelihood** | Medium — external token incidents and depegs are common market risks. |
+
+**Current Controls:**
+- Global pause mechanism (`pause()`) callable by authorized guardians blocks all state-changing entrypoints.
+- Multi-asset allowlist (`allow_asset`, `disallow_asset`) controls which tokens may be used.
+- Per-asset pause circuit breaker (`pause_asset(guardian, asset)`, `unpause_asset(guardian, asset)`) allows guardians to halt new trades and deposits in a compromised asset while leaving unaffected allowed assets tradeable.
+
+---
+
 ### 3.2 Replay Attacks
 
 ---
@@ -332,6 +348,7 @@ Created → Funded → Delivered → Completed
 | Appeal window post-resolution | Contract | ❌ Not implemented |
 | Evidence IPFS pinning service | Infrastructure | ❌ Not implemented |
 | Mediator outcome audit log | Backend / Admin dashboard | ❌ Not implemented |
+| Per-asset pausable circuit breaker | `lib.rs` – `pause_asset` / `unpause_asset` | ✅ Implemented |
 
 ---
 
@@ -365,6 +382,7 @@ Created → Funded → Delivered → Completed
 - [Soroban Security Best Practices](https://developers.stellar.org/docs/smart-contracts)
 - [Amana Backend Reliability Layer](./backend.md)
 - [Amana Escrow Contract README](../contracts/amana_escrow/README.md)
+- [Money-Math Invariant Catalog](./money-math-invariant-catalog.md) — fund-conservation invariants (INV-009) that reviewers check the contract against.
 - OWASP Smart Contract Top 10
 
 ---
@@ -389,3 +407,4 @@ This document is **not static**. It is reviewed on the following schedule so tha
 | Date | Reviewer | Summary |
 |---|---|---|
 | 2026-08-26 | `@Ndifreke000` | First formal quarterly-cadence review. Established owner, cadence, trigger conditions, and this changelog per issue #210. No control status changes from §4; matrix and priority ranking confirmed current as of this date. |
+| 2026-10-19 | `@security` | Trigger-based review for Issue #290: Per-asset pausable circuit breaker. Added TH-E-05, documented pause_asset/unpause_asset guardian authorization, updated §4 controls. |

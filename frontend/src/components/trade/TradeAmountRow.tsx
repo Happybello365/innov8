@@ -1,11 +1,13 @@
 "use client";
 
-import { formatCngnAmount, formatNaira, formatNumber } from "@/lib/i18n";
+import { formatCngnAmount, formatNaira, formatNumber, formatAmount } from "@/lib/i18n";
+import { type CurrencyCode } from "@/lib/currencies";
 
 interface TradeAmountRowProps {
   amountCngn: string | number;
   amountLocal?: string | number;
   currencyLocal?: "NGN" | "XLM";
+  displayCurrency?: CurrencyCode;
   label?: string;
   highlighted?: boolean;
 }
@@ -25,9 +27,16 @@ export function TradeAmountRow({
   amountCngn,
   amountLocal,
   currencyLocal = "NGN",
+  displayCurrency = "NGN",
   label = "Total Trade Value",
   highlighted = false,
 }: TradeAmountRowProps) {
+  // Format the primary amount using the display currency
+  const formattedAmount =
+    displayCurrency === "NGN"
+      ? formatCngnAmount(amountCngn)
+      : formatAmount(amountCngn, displayCurrency);
+
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-border-default bg-elevated p-4">
       <div className="min-w-0">
@@ -38,9 +47,11 @@ export function TradeAmountRow({
               highlighted ? "text-gold" : "text-text-primary"
             }`}
           >
-            {formatCngnAmount(amountCngn)}
+            {formattedAmount}
           </p>
-          <span className="text-lg font-semibold text-text-muted">cNGN</span>
+          <span className="text-lg font-semibold text-text-muted">
+            {displayCurrency === "NGN" ? "cNGN" : displayCurrency}
+          </span>
         </div>
         {amountLocal !== undefined && (
           <p className="text-text-muted text-sm mt-1">
