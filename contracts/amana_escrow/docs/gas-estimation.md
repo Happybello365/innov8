@@ -13,6 +13,7 @@ The gas suite measures the Amana escrow hot paths that are most likely to affect
 - `admin_clawback` (unilateral admin `cancel_trade` on funded escrow)
 - repeated partial `admin_clawback` calls on the same trade (Issue #110)
 - the combined dispute lifecycle
+- `release_funds` with and without stream accounting (Issue #286)
 
 ## Baseline Gas & Footprint Thresholds
 
@@ -24,25 +25,38 @@ The gas suite measures the Amana escrow hot paths that are most likely to affect
 | `resolve_dispute` | 8,000,000 | 4,000,000 | Mediator authorization, payout BPS calculation, token transfer(s), dispute record update |
 | `admin_clawback` | 6,000,000 | 3,500,000 | Admin auth check, Stellar asset token refund transfer to buyer, status update to `Cancelled`, release sequence update, event emission |
 | `repeated_partial_clawback` (5x) | 25,000,000 | 15,000,000 | 5 sequential partial `admin_clawback` calls: admin auth + feature-flag check, token transfer, `ClawbackTotal` read/write, and trade-record write per call |
+| `list_mediators` (5 mediators) | 5,000,000 | 3,000,000 | One list read from persistent storage plus one `MediatorWeight` read per registered mediator; cost grows linearly with registry size (Issue #274) |
 
 ### Repeated clawback benchmarking (Issue #110)
 
 `test_gas_repeated_partial_clawback` calls `admin_clawback` 5 times in a row against the same trade to confirm cost scales linearly (no unbounded storage growth per call — `ClawbackTotal` is a single scalar overwrite, not an appended list). The baseline above is set with headroom over `5 * BASELINE_ADMIN_CLAWBACK` rather than a full 1:1 multiple, since repeated calls skip the one-time trade-creation/deposit setup cost. No further gas optimization was identified as necessary at this call volume; if future changes make per-trade clawback history append-only, re-baseline using the policy below and re-evaluate whether the per-call cost still stays flat.
 
+### Stream accounting cost on `release_funds` (Issue #286)
+
+`test_gas_release_funds_stream_accounting_delta` isolates the extra cost of stream accounting bookkeeping on `release_funds`. A trade "with stream accounting" has a recorded `ClawbackTotal` (a partial `admin_clawback` while funded) so `get_stream_accounting` reports `(original, claimed, clawed_back)` with a non-zero clawed-back figure. Both scenarios release the same 10,000 remaining escrow, so token transfer, fee maths and events are identical and the difference is the stream accounting bookkeeping. Only the `release_funds` call is measured.
+
+The test measures each scenario twice and asserts the results are identical, so the delta is reproducible. Run it from `contracts/amana_escrow/` to read the delta:
+
+```bash
+cargo test --lib test_gas_release_funds_stream_accounting_delta -- --nocapture
+```
+
+It prints the CPU and memory cost of each scenario and `stream accounting delta: CPU +N, MEM +N`. If `release_funds` ever exceeds its budget, compare this delta against the total to see whether stream accounting is the cause.
+
 ## Methodology
 
 The tests use Soroban test utilities and reset the budget immediately before the measured closure. Setup calls such as contract registration, token minting, initialization, and mediator registration are intentionally excluded from hot-path measurements.
 
-Every measured path asserts both CPU instruction cost and memory byte cost against versioned baseline thresholds committed in `src/tests/gas_footprint_tests.rs`.
+Every measured path asserts both CPU instruction cost and memory byte cost against the checked-in values in `src/tests/gas_footprint_baselines.json`. Each value allows at most 10% headroom; exceeding either CPU or memory budget fails the test. Test output reports the measured value, baseline, and maximum for each path.
 
 ## Re-baselining policy
 
 Only re-baseline when a deliberate contract change increases cost for a documented reason. When re-baselining:
 
-1. Run `cargo test` from `contracts/amana_escrow/`.
-2. Capture measured CPU and memory values locally.
-3. Round up to a stable threshold with conservative headroom.
-4. Commit threshold changes together with the contract change that caused them.
+1. Run `cargo test --lib gas_footprint_tests -- --nocapture` from `contracts/amana_escrow/` and record the reported CPU and memory values.
+2. Update the matching entry in `src/tests/gas_footprint_baselines.json` to the newly measured values; do not add the 10% budget to the stored baseline.
+3. Run the gas-footprint tests again and confirm the new baseline passes with the shared 10% allowance.
+4. Commit baseline changes together with the contract change that caused the intentional increase, explaining the cost in the PR.
 
 Do not add network-dependent or timing-dependent checks to the gas suite. CI should remain deterministic and non-flaky.
 

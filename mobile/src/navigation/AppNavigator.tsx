@@ -1,8 +1,8 @@
-﻿import { useEffect, useMemo, useRef } from 'react';
+﻿import { lazy, Suspense, useEffect, useMemo, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import type { LinkingOptions, NavigationContainerRef } from '@react-navigation/native';
-import { Linking } from 'react-native';
+import { ActivityIndicator, Linking, View } from 'react-native';
 
 import type { RootStackParamList } from '../types/navigation';
 import WalletConnectScreen from '../screens/WalletConnectScreen';
@@ -12,12 +12,35 @@ import DisputeDetailScreen from '../screens/DisputeDetailScreen';
 import CreateTradeScreen from '../screens/CreateTradeScreen';
 import EvidenceCaptureScreen from '../screens/EvidenceCaptureScreen';
 import VaultDashboard from '../screens/VaultDashboard';
-import AdminStreamsOverviewScreen from '../screens/AdminStreamsOverviewScreen';
-import AdminTradesBatchScreen from '../screens/AdminTradesBatchScreen';
-import AdminContractScreen from '../screens/AdminContractScreen';
-import AdminFeaturesScreen from '../screens/AdminFeaturesScreen';
-import AdminActionSuccessScreen from '../screens/AdminActionSuccessScreen';
+import NotificationsInboxScreen from '../screens/NotificationsInboxScreen';
+import AboutScreen from '../screens/AboutScreen';
+import NotificationPreferencesScreen from '../screens/NotificationPreferencesScreen';
+import SecuritySettingsScreen from '../screens/SecuritySettingsScreen';
 import { useDeepLink } from '../hooks/useDeepLink';
+import {
+  getInitialNotificationData,
+  setupNotificationListeners,
+} from '../services/notification.service';
+import { targetForNotification } from '../services/notificationRouting';
+
+// Admin screens are lazy-loaded and only registered for admin users (issue #100).
+// This keeps the initial JS bundle smaller for the vast majority of users who
+// never access the admin area.
+const AdminStreamsOverviewScreen = lazy(
+  () => import('../screens/AdminStreamsOverviewScreen'),
+);
+const AdminTradesBatchScreen = lazy(
+  () => import('../screens/AdminTradesBatchScreen'),
+);
+const AdminContractScreen = lazy(
+  () => import('../screens/AdminContractScreen'),
+);
+const AdminFeaturesScreen = lazy(
+  () => import('../screens/AdminFeaturesScreen'),
+);
+const AdminActionSuccessScreen = lazy(
+  () => import('../screens/AdminActionSuccessScreen'),
+);
 import {
   LINK_PREFIXES,
   LINKING_SCREEN_CONFIG,
@@ -58,10 +81,12 @@ function makeLinking(isAuthenticated: boolean): LinkingOptions<RootStackParamLis
 
 interface AppNavigatorProps {
   isAuthenticated: boolean;
+  /** When true the admin screen stack is registered and lazy-loaded (issue #100). */
+  isAdmin?: boolean;
 }
 
-export function AppNavigator({ isAuthenticated }: AppNavigatorProps) {
-  const { handleUrl, resumePendingDeepLink } = useDeepLink();
+export function AppNavigator({ isAuthenticated, isAdmin = false }: AppNavigatorProps) {
+  const { handleUrl, handleDeepLink, resumePendingDeepLink } = useDeepLink();
   const navRef = useRef<NavigationContainerRef<RootStackParamList> | null>(null);
   const linking = useMemo(() => makeLinking(isAuthenticated), [isAuthenticated]);
 
@@ -72,6 +97,23 @@ export function AppNavigator({ isAuthenticated }: AppNavigatorProps) {
     const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url, navRef.current));
     return () => sub.remove();
   }, [handleUrl]);
+
+  // Push notification taps (issue #259): open the trade the push is about,
+  // or fall back to home when the payload has no usable trade id. Routed
+  // through useDeepLink so a tap while signed out is parked until login.
+  useEffect(() => {
+    let cancelled = false;
+    getInitialNotificationData().then((data) => {
+      if (!cancelled && data) handleDeepLink(targetForNotification(data), navRef.current);
+    });
+    const unsubscribe = setupNotificationListeners((data) =>
+      handleDeepLink(targetForNotification(data), navRef.current),
+    );
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [handleDeepLink]);
 
   // Login-then-continue: replay a parked link once authenticated.
   useEffect(() => {
@@ -102,11 +144,25 @@ export function AppNavigator({ isAuthenticated }: AppNavigatorProps) {
         <Stack.Screen name="CreateTrade" component={CreateTradeScreen} />
         <Stack.Screen name="EvidenceCapture" component={EvidenceCaptureScreen} />
         <Stack.Screen name="VaultDashboard" component={VaultDashboard} />
-        <Stack.Screen name="AdminStreamsOverview" component={AdminStreamsOverviewScreen} />
-        <Stack.Screen name="AdminTradesBatch" component={AdminTradesBatchScreen} />
-        <Stack.Screen name="AdminContract" component={AdminContractScreen} />
-        <Stack.Screen name="AdminFeatures" component={AdminFeaturesScreen} />
-        <Stack.Screen name="AdminActionSuccess" component={AdminActionSuccessScreen} />
+        {isAdmin && (
+          <Suspense
+            fallback={
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#2d6a2d" />
+              </View>
+            }
+          >
+            <Stack.Screen name="AdminStreamsOverview" component={AdminStreamsOverviewScreen} />
+            <Stack.Screen name="AdminTradesBatch" component={AdminTradesBatchScreen} />
+            <Stack.Screen name="AdminContract" component={AdminContractScreen} />
+            <Stack.Screen name="AdminFeatures" component={AdminFeaturesScreen} />
+            <Stack.Screen name="AdminActionSuccess" component={AdminActionSuccessScreen} />
+          </Suspense>
+        )}
+        <Stack.Screen name="NotificationsInbox" component={NotificationsInboxScreen} />
+        <Stack.Screen name="About" component={AboutScreen} />
+        <Stack.Screen name="NotificationPreferences" component={NotificationPreferencesScreen} />
+        <Stack.Screen name="SecuritySettings" component={SecuritySettingsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -7,18 +7,25 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Share,
   StyleSheet,
   TextInput,
   Modal,
+  AccessibilityInfo,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
-import type { Trade, TradeStatus } from '../types/trade';
+import type { Trade, TradeNote, TradeStatus } from '../types/trade';
+import { tradeApi } from '../api/trade';
+import { offlineService } from '../services/offline.service';
 import { useTradeStore } from '../stores/tradeStore';
 import { useAuthStore } from '../stores/authStore';
 import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
+import { webUrlFor } from '../constants/links';
+import { formatAmount } from '../utils/formatAmount';
 import type { AdminErrorView } from '../api/errors';
 
 type Props = StackScreenProps<RootStackParamList, 'TradeDetail'>;
@@ -128,6 +135,49 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
   const [disputeReason, setDisputeReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Notes state
+  const [notes, setNotes] = useState<TradeNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [noteInput, setNoteInput] = useState('');
+  const [noteSubmitting, setNoteSubmitting] = useState(false);
+  const [isReduceMotion, setIsReduceMotion] = useState(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setIsReduceMotion).catch(() => {});
+  }, []);
+
+  const triggerHaptic = useCallback(
+    async (type: 'success' | 'warning') => {
+      if (isReduceMotion) return;
+      try {
+        if (type === 'success') {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+      } catch {
+        // Devices without haptic hardware silently skip
+      }
+    },
+    [isReduceMotion],
+  );
+
+  const loadNotes = useCallback(async () => {
+    setNotesLoading(true);
+    try {
+      const result = await tradeApi.listNotes(tradeId);
+      setNotes(result.notes);
+    } catch {
+      // Offline — no cached notes to show
+    } finally {
+      setNotesLoading(false);
+    }
+  }, [tradeId]);
+
+  useEffect(() => {
+    loadNotes();
+  }, [loadNotes]);
+
   useEffect(() => {
     fetchTrade(tradeId);
   }, [tradeId, fetchTrade]);
@@ -146,6 +196,12 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
     },
     []
   );
+
+  const handleShare = useCallback(() => {
+    if (!currentTrade) return;
+    const url = webUrlFor({ screen: 'TradeDetail', params: { tradeId: currentTrade.tradeId } });
+    void Share.share({ url, message: `View trade on AmanaVault: ${url}` });
+  }, [currentTrade]);
 
   const handleDeposit = useCallback(() => {
     Alert.alert(
@@ -178,6 +234,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
           onPress: async () => {
             setActionLoading(true);
             await confirmDelivery(tradeId);
+            await triggerHaptic('success');
             setActionLoading(false);
           },
         },
@@ -197,6 +254,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
           onPress: async () => {
             setActionLoading(true);
             await releaseFunds(tradeId);
+            await triggerHaptic('warning');
             setActionLoading(false);
           },
         },
@@ -215,6 +273,36 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
     setDisputeModalVisible(false);
     setDisputeReason('');
   }, [tradeId, disputeReason, initiateDispute]);
+
+  const handleAddNote = useCallback(async () => {
+    const content = noteInput.trim();
+    if (!content) return;
+    setNoteSubmitting(true);
+    try {
+      await tradeApi.addNote(tradeId, content);
+      setNoteInput('');
+      await loadNotes();
+    } catch {
+      // Queue offline and optimistically show
+      await offlineService.setSecureItem(
+        `pending_note_${tradeId}_${Date.now()}`,
+        JSON.stringify({ tradeId, content }),
+      );
+      setNotes((prev) => [
+        ...prev,
+        {
+          id: `offline-${Date.now()}`,
+          tradeId,
+          authorAddress: 'you',
+          content,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setNoteInput('');
+    } finally {
+      setNoteSubmitting(false);
+    }
+  }, [tradeId, noteInput, loadNotes]);
 
   const status = currentTrade?.status ?? 'PENDING';
   const canDeposit = status === 'PENDING';
@@ -285,11 +373,13 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.goBack()} testID="back-btn">
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Trade Detail</Text>
-        <View style={{ width: 60 }} />
+        <TouchableOpacity onPress={handleShare} style={{ width: 60, alignItems: 'flex-end' }} testID="share-btn">
+          <Text style={styles.shareText}>Share</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -299,7 +389,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
           <View style={[styles.statusBadge, { backgroundColor: `${statusColor}22` }]}>
             <Text style={[styles.statusText, { color: statusColor }]}>{STATUS_LABELS[status]}</Text>
           </View>
-          <Text style={styles.amountText}>{currentTrade.amountUsdc} USDC</Text>
+          <Text style={styles.amountText}>{formatAmount(currentTrade.amountUsdc, 'USDC')} USDC</Text>
           {currentTrade.commodity && (
             <Text style={styles.commodityText}>{currentTrade.commodity}{currentTrade.quantity ? ` — ${currentTrade.quantity} ${currentTrade.unit ?? ''}` : ''}</Text>
           )}
@@ -351,6 +441,45 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
         {/* Timeline */}
         <TradeTimeline trade={currentTrade} />
 
+        {/* Notes */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Notes</Text>
+          {notesLoading ? (
+            <ActivityIndicator size="small" color="#2d6a2d" />
+          ) : notes.length === 0 ? (
+            <Text style={styles.noActionsText}>No notes yet.</Text>
+          ) : (
+            notes.map((note) => (
+              <View key={note.id} style={styles.noteItem}>
+                <Text style={styles.noteAuthor}>{note.authorAddress.slice(0, 10)}…</Text>
+                <Text style={styles.noteContent}>{note.content}</Text>
+                <Text style={styles.noteDate}>{new Date(note.createdAt).toLocaleDateString()}</Text>
+              </View>
+            ))
+          )}
+          <View style={styles.noteInputRow}>
+            <TextInput
+              style={styles.noteInput}
+              placeholder="Add a note…"
+              value={noteInput}
+              onChangeText={setNoteInput}
+              multiline
+              textAlignVertical="top"
+            />
+            <TouchableOpacity
+              style={[styles.noteSubmitBtn, noteSubmitting && styles.btnDisabled]}
+              onPress={handleAddNote}
+              disabled={noteSubmitting}
+            >
+              {noteSubmitting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.actionBtnText}>Add</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Actions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Actions</Text>
@@ -360,6 +489,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
               style={[styles.actionBtn, styles.depositBtn, actionLoading && styles.btnDisabled]}
               onPress={handleDeposit}
               disabled={actionLoading}
+              testID="deposit-funds-btn"
             >
               {actionLoading ? (
                 <ActivityIndicator color="#fff" />
@@ -374,6 +504,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
               style={[styles.actionBtn, styles.confirmBtn, actionLoading && styles.btnDisabled]}
               onPress={handleConfirmDelivery}
               disabled={actionLoading}
+              testID="confirm-delivery-btn"
             >
               {actionLoading ? (
                 <ActivityIndicator color="#fff" />
@@ -388,6 +519,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
               style={[styles.actionBtn, styles.releaseBtn, actionLoading && styles.btnDisabled]}
               onPress={handleReleaseFunds}
               disabled={actionLoading}
+              testID="release-funds-btn"
             >
               {actionLoading ? (
                 <ActivityIndicator color="#fff" />
@@ -402,6 +534,7 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
               style={[styles.actionBtn, styles.disputeBtn, actionLoading && styles.btnDisabled]}
               onPress={() => setDisputeModalVisible(true)}
               disabled={actionLoading}
+              testID="initiate-dispute-btn"
             >
               <Text style={styles.actionBtnText}>⚠️ Initiate Dispute</Text>
             </TouchableOpacity>
@@ -482,6 +615,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e0e8e0',
   },
   backText: { fontSize: 14, color: '#2d6a2d', fontWeight: '500', width: 60 },
+  shareText: { fontSize: 14, color: '#2d6a2d', fontWeight: '500' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#1a3a1a' },
   content: { padding: 16, gap: 16 },
   statusCard: {
@@ -579,4 +713,26 @@ const styles = StyleSheet.create({
   cancelBtnText: { color: '#555', fontSize: 15, fontWeight: '600' },
   submitBtn: { backgroundColor: '#DC2626' },
   submitBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  noteItem: { borderBottomWidth: 1, borderBottomColor: '#f0f4f0', paddingBottom: 8, gap: 2 },
+  noteAuthor: { fontSize: 11, color: '#888', fontFamily: 'monospace' },
+  noteContent: { fontSize: 13, color: '#1a3a1a' },
+  noteDate: { fontSize: 11, color: '#aaa' },
+  noteInputRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end', marginTop: 8 },
+  noteInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#d0d8d0',
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 13,
+    color: '#1a3a1a',
+    minHeight: 60,
+  },
+  noteSubmitBtn: {
+    backgroundColor: '#2d6a2d',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
 });

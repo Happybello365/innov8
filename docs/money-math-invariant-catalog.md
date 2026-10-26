@@ -164,6 +164,55 @@ amount plus the clawed-back amount must equal the original trade amount.
 
 ---
 
+### INV-009: Fund Conservation Across the Escrow Lifecycle
+
+**Category:** Contract solvency
+**Owning test files:**
+- Rust: `contracts/amana_escrow/src/tests/fund_conservation_tests.rs` (`contract_balance_equals_open_escrow_plus_accrued_fees_across_lifecycle`, `full_admin_cancel_refunds_escrow_and_keeps_invariant`)
+
+**Invariant:**
+```
+token_balance(contract) == sum(trade.amount for trades in Funded | Delivered | Disputed)
+                           + accrued_fees
+```
+
+**Description:** Every unit of the settlement token held by the escrow contract
+is attributable to exactly one of two buckets: the remaining escrow of an open
+trade, or platform fees that have accrued but not yet been withdrawn. Nothing
+is held that is unaccounted for, and nothing is accounted for that is not held.
+In production the left-hand side can only exceed the right-hand side, by tokens
+sent to the contract address outside the contract's entrypoints; a deficit
+would mean the contract is insolvent. The test environment has no such
+transfers, so the test asserts strict equality.
+
+**How each entrypoint preserves it** (`Δ` is the change to each side):
+
+| Entrypoint | Token balance | Open escrow | Accrued fees |
+|---|---|---|---|
+| `deposit` | `+amount` | `+amount` | `0` |
+| `release_funds` | `-(amount - fee)` | `-amount` | `+fee` |
+| `resolve_dispute` | `-(seller_net + buyer_refund)` | `-amount` | `+fee` |
+| `admin_clawback` | `-clawback_amount` | `-clawback_amount` | `0` |
+| `cancel_trade` (funded) | `-amount` | `-amount` | `0` |
+| `withdraw_fees` | `-withdrawn` | `0` | `-withdrawn` |
+
+Each row balances because of INV-001 (`seller_amount + fee == amount`),
+INV-004 (`seller_net + buyer_refund + fee == total`) and INV-008
+(`remaining + clawback == trade_amount`).
+
+**Related rules a reviewer should check against `lib.rs`:**
+- A trade in `Created`, `Completed` or `Cancelled` holds no escrow, so it
+  contributes `0` to the sum. Every path that moves a trade into `Completed`
+  or `Cancelled` must transfer out or accrue its whole remaining amount first.
+- `AccruedFees` only increases inside `release_funds` and the dispute
+  settlement, and only decreases inside `withdraw_fees`.
+- `withdraw_fees` must never withdraw more than the stored `AccruedFees`,
+  regardless of fee-rate updates between accrual and withdrawal.
+- A fee-rate change (`update_fee_bps`) never rewrites `AccruedFees`; it only
+  changes the fee computed by later settlements.
+
+---
+
 ## Cross-Language Parity Testing
 
 ### How it works

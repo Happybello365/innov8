@@ -1,11 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NavLink } from "@/components/ui/Navigation";
 import { Badge } from "@/components/ui/Badge";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { useNotificationStore } from "@/stores/notificationStore";
 
 interface AppTopNavProps {
   onToggleSidebar?: () => void;
@@ -20,6 +21,7 @@ const TOP_NAV = [
   { href: "/trades", label: "Trades" },
   { href: "/assets", label: "Assets" },
   { href: "/vault", label: "Vault" },
+  { href: "/help", label: "Help" },
 ];
 
 export function AppTopNav({
@@ -28,6 +30,39 @@ export function AppTopNav({
 }: AppTopNavProps) {
   const pathname = usePathname();
   const isAdmin = useIsAdmin();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const { notifications, unreadCount, fetch: fetchNotifications, markRead } = useNotificationStore();
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
+
+  async function handleMarkRead(id: string) {
+    const prev = useNotificationStore.getState().unreadCount;
+    useNotificationStore.setState((s) => ({
+      notifications: s.notifications.map((n) => n.id === id ? { ...n, read: true } : n),
+      unreadCount: s.notifications.filter((n) => !n.read && n.id !== id).length,
+    }));
+    try {
+      await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
+    } catch {
+      useNotificationStore.setState((s) => ({
+        notifications: s.notifications.map((n) => n.id === id ? { ...n, read: false } : n),
+        unreadCount: prev,
+      }));
+    }
+  }
 
   return (
     <header className="h-14 bg-card border-b border-border-default flex items-center px-4 lg:px-6 gap-4 lg:gap-8 flex-shrink-0">
@@ -56,8 +91,8 @@ export function AppTopNav({
       </button>
 
       {/* Logo */}
-      <Link href="/" className="text-gold font-bold text-lg tracking-tight flex-shrink-0">
-        Amana
+      <Link href="/" aria-label="innov8 home" className="text-gold font-bold text-lg tracking-tight flex-shrink-0">
+        innov8
       </Link>
 
       {/* Nav links */}
@@ -82,12 +117,61 @@ export function AppTopNav({
         )}
 
         {/* Notification bell */}
-        <button className="w-8 h-8 rounded-full flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-elevated transition-all">
-          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M8 1a5 5 0 015 5v3l1.5 2.5H1.5L3 9V6a5 5 0 015-5z" />
-            <path d="M6.5 13.5a1.5 1.5 0 003 0" />
-          </svg>
-        </button>
+        <div ref={dropdownRef} className="relative">
+          <button
+            aria-label="Notifications"
+            aria-expanded={dropdownOpen}
+            onClick={() => setDropdownOpen((o) => !o)}
+            className="relative w-8 h-8 rounded-full flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-elevated transition-all"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M8 1a5 5 0 015 5v3l1.5 2.5H1.5L3 9V6a5 5 0 015-5z" />
+              <path d="M6.5 13.5a1.5 1.5 0 003 0" />
+            </svg>
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-status-error text-white text-[9px] font-bold flex items-center justify-center">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {dropdownOpen && (
+            <div className="absolute right-0 top-10 w-80 bg-card border border-border-default rounded-xl shadow-lg z-50 overflow-hidden" data-testid="notification-dropdown">
+              <div className="px-4 py-3 border-b border-border-default flex items-center justify-between">
+                <span className="text-sm font-semibold text-text-primary">Notifications</span>
+                {unreadCount > 0 && (
+                  <span className="text-xs text-text-secondary">{unreadCount} unread</span>
+                )}
+              </div>
+              <ul className="max-h-72 overflow-y-auto divide-y divide-border-default">
+                {notifications.length === 0 ? (
+                  <li className="px-4 py-6 text-center text-sm text-text-secondary">No notifications</li>
+                ) : (
+                  notifications.map((n) => (
+                    <li
+                      key={n.id}
+                      className={`flex items-start gap-3 px-4 py-3 ${n.read ? "opacity-60" : "bg-bg-elevated/40"}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-text-primary truncate">{n.title}</p>
+                        <p className="text-xs text-text-secondary mt-0.5 line-clamp-2">{n.message}</p>
+                      </div>
+                      {!n.read && (
+                        <button
+                          onClick={() => handleMarkRead(n.id)}
+                          className="flex-shrink-0 text-xs text-gold hover:underline whitespace-nowrap mt-0.5"
+                          aria-label={`Mark "${n.title}" as read`}
+                        >
+                          Mark read
+                        </button>
+                      )}
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
 
         {/* Avatar */}
         <button className="w-8 h-8 rounded-full bg-elevated border border-border-default flex items-center justify-center text-text-secondary hover:text-text-primary transition-all">

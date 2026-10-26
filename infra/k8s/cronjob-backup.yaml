@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: db-backup-config
-  namespace: amana
+  namespace: innov8
 data:
   S3_PREFIX: "backups"
 ---
@@ -10,7 +10,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: db-backup-daily
-  namespace: amana
+  namespace: innov8
 spec:
   schedule: "0 2 * * *"
   concurrencyPolicy: Forbid
@@ -22,10 +22,26 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: db-backup
-              image: ghcr.io/kingfrankhood/amana/db-backup:latest
+              image: ghcr.io/kingfrankhood/innov8/db-backup:latest
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
               command: ["/scripts/db-backup.sh", "--type=daily"]
+              env:
+                - name: GNUPGHOME
+                  value: /tmp/gnupg
               envFrom:
                 - secretRef:
                     name: db-backup-secret
@@ -38,12 +54,18 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 256Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: db-backup-weekly
-  namespace: amana
+  namespace: innov8
 spec:
   schedule: "0 3 * * 0"
   concurrencyPolicy: Forbid
@@ -55,10 +77,26 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: db-backup
-              image: ghcr.io/kingfrankhood/amana/db-backup:latest
+              image: ghcr.io/kingfrankhood/innov8/db-backup:latest
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
               command: ["/scripts/db-backup.sh", "--type=weekly"]
+              env:
+                - name: GNUPGHOME
+                  value: /tmp/gnupg
               envFrom:
                 - secretRef:
                     name: db-backup-secret
@@ -71,12 +109,18 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 256Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: db-backup-monthly
-  namespace: amana
+  namespace: innov8
 spec:
   schedule: "0 4 1 * *"
   concurrencyPolicy: Forbid
@@ -88,10 +132,26 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: db-backup
-              image: ghcr.io/kingfrankhood/amana/db-backup:latest
+              image: ghcr.io/kingfrankhood/innov8/db-backup:latest
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
               command: ["/scripts/db-backup.sh", "--type=monthly"]
+              env:
+                - name: GNUPGHOME
+                  value: /tmp/gnupg
               envFrom:
                 - secretRef:
                     name: db-backup-secret
@@ -104,12 +164,18 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 256Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
 ---
 # Secret template — populate with real values via Sealed Secrets / External Secrets
-# kubectl create secret generic db-backup-secret -n amana \
+# kubectl create secret generic db-backup-secret -n innov8 \
 #   --from-literal=DATABASE_URL=postgresql://... \
 #   --from-literal=GPG_RECIPIENT=<fingerprint> \
-#   --from-literal=S3_BUCKET=amana-backups \
+#   --from-literal=S3_BUCKET=innov8-backups \
 #   --from-literal=AWS_ACCESS_KEY_ID=... \
 #   --from-literal=AWS_SECRET_ACCESS_KEY=... \
 #   --from-literal=AWS_DEFAULT_REGION=us-east-1
