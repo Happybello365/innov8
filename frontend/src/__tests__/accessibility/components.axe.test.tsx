@@ -7,6 +7,7 @@ import { Tabs } from "@/components/ui/Tabs";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TradeListItem } from "@/components/trade/TradeListItem";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { ToastContainer } from "@/components/ui/ToastContainer";
 
 jest.mock("@/hooks/useToast", () => ({
@@ -69,6 +70,33 @@ describe("Accessibility audit — WCAG 2.1 AA", () => {
         </FormField>
       );
       expect(await axe(container)).toHaveNoViolations();
+    });
+
+    it("wires aria-describedby from input to error paragraph (#234)", () => {
+      const { container } = render(
+        <FormField label="Email" name="email" error="Invalid email address">
+          <input type="email" />
+        </FormField>
+      );
+      const input = container.querySelector("input")!;
+      const errorEl = container.querySelector("[id$='-error']")!;
+      expect(errorEl).not.toBeNull();
+      expect(input.getAttribute("aria-describedby")).toContain(errorEl.id);
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+    });
+  });
+
+  describe("ThemeToggle (#232)", () => {
+    it("has no axe violations", async () => {
+      const { container } = render(<ThemeToggle />);
+      expect(await axe(container)).toHaveNoViolations();
+    });
+
+    it("renders a radiogroup with three labelled options", () => {
+      const { getByRole, getAllByRole } = render(<ThemeToggle />);
+      expect(getByRole("radiogroup", { name: /theme preference/i })).toBeInTheDocument();
+      const radios = getAllByRole("radio");
+      expect(radios).toHaveLength(3);
     });
   });
 
