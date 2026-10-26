@@ -114,7 +114,7 @@ before wiring up automated provisioning.
 
 1. Deploy the app with `PROMETHEUS_PORT` set and something scraping it
    (Prometheus server pointed at `/metrics` on that port).
-2. Provision Grafana as above; open the "Amana" folder, "Amana — Golden
+2. Provision Grafana as above; open the "innov8" folder, "innov8 — Golden
    Signals" dashboard.
 3. Confirm the top row (request rate, latency) populates first — those come
    straight from HTTP auto-instrumentation and need no extra setup.
