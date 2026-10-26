@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainerRef } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, View, useColorScheme } from 'react-native';
@@ -9,18 +8,18 @@ import { useAuthStore } from './stores/authStore';
 import {
   registerForPushNotifications,
   storePushTokenOnBackend,
-  setupNotificationListeners,
   checkNotificationPermissions,
 } from './services/notification.service';
-import type { RootStackParamList } from './types/navigation';
 import { AppNavigator } from './navigation/AppNavigator';
-import type { NotificationData } from './services/notification.service';
+import { BiometricLockOverlay } from './components/BiometricLockOverlay';
+import { useBiometricLock } from './hooks/useBiometricLock';
 
 export default function App() {
   const scheme = useColorScheme();
   const { getToken, token, isAdmin } = useAuthStore();
   const [bootstrapped, setBootstrapped] = useState(false);
-  const navigationRef = useRef<NavigationContainerRef<RootStackParamList> | null>(null);
+  // Optional biometric re-auth on resume (issue #258); inert when signed out.
+  const { locked, unlock } = useBiometricLock(!!token);
 
   useEffect(() => {
     getToken().finally(() => setBootstrapped(true));
@@ -39,17 +38,9 @@ export default function App() {
       }
     };
 
+    // Notification taps are routed inside AppNavigator, which owns the
+    // navigation ref (issue #259).
     setupNotifications();
-
-    const unsubscribe = setupNotificationListeners((data: NotificationData) => {
-      if (data.tradeId && navigationRef.current) {
-        navigationRef.current.navigate('TradeDetail', { tradeId: data.tradeId });
-      } else if (data.screen && navigationRef.current) {
-        navigationRef.current.navigate(data.screen as any);
-      }
-    });
-
-    return unsubscribe;
   }, [token]);
 
   const isDark = scheme === 'dark';
@@ -66,6 +57,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppNavigator isAuthenticated={!!token} isAdmin={isAdmin} />
+        {locked && <BiometricLockOverlay onUnlock={unlock} />}
         <StatusBar style={isDark ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </GestureHandlerRootView>

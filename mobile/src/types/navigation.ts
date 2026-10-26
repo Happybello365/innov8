@@ -26,4 +26,8 @@ export type RootStackParamList = {
   NotificationsInbox: undefined;
   /** #92 — app version and build info */
   About: undefined;
+  /** #260 — notification preferences (quiet hours) */
+  NotificationPreferences: undefined;
+  /** #258 — biometric lock settings */
+  SecuritySettings: undefined;
 };

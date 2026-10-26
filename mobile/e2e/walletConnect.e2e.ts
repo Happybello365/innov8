@@ -40,14 +40,14 @@ async function launchSignedOut(): Promise<void> {
     delete: true,
     launchArgs: unauthenticatedLaunchArgs,
   });
-  await waitFor(element(by.id('connect-wallet-button')))
+  await waitFor(element(by.id('connect-wallet-btn')))
     .toBeVisible()
     .withTimeout(TIMEOUT);
 }
 
 /** Opens the address prompt, types the address and confirms. */
 async function submitWalletAddress(address: string): Promise<void> {
-  await element(by.id('connect-wallet-button')).tap();
+  await element(by.id('connect-wallet-btn')).tap();
   await waitFor(element(by.text('Enter Wallet Address')))
     .toBeVisible()
     .withTimeout(TIMEOUT);
@@ -86,7 +86,7 @@ describeOnIOS('WalletConnect flow', () => {
     await waitFor(element(by.text('🌾 Trades')))
       .toBeVisible()
       .withTimeout(TIMEOUT);
-    await detoxExpect(element(by.id('connect-wallet-button'))).not.toExist();
+    await detoxExpect(element(by.id('connect-wallet-btn'))).not.toExist();
   });
 
   it('shows an error and stays on WalletConnect when the connection is rejected', async () => {
@@ -97,7 +97,7 @@ describeOnIOS('WalletConnect flow', () => {
       .withTimeout(TIMEOUT);
     await element(by.label('OK')).atIndex(0).tap();
 
-    await detoxExpect(element(by.id('connect-wallet-button'))).toBeVisible();
+    await detoxExpect(element(by.id('connect-wallet-btn'))).toBeVisible();
     await detoxExpect(element(by.text('🌾 Trades'))).not.toExist();
   });
 
@@ -109,6 +109,6 @@ describeOnIOS('WalletConnect flow', () => {
       .withTimeout(TIMEOUT);
     await element(by.label('OK')).atIndex(0).tap();
 
-    await detoxExpect(element(by.id('connect-wallet-button'))).toBeVisible();
+    await detoxExpect(element(by.id('connect-wallet-btn'))).toBeVisible();
   });
 });

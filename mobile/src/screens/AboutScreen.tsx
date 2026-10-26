@@ -48,6 +48,15 @@ export default function AboutScreen({ navigation }: Props) {
 
         <TouchableOpacity
           style={[styles.supportBtn, { backgroundColor: theme.primary }]}
+          onPress={() => navigation.navigate('SecuritySettings')}
+          accessibilityRole="button"
+          accessibilityLabel="Security settings"
+        >
+          <Text style={[styles.supportBtnText, { color: theme.primaryText }]}>Security Settings</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.supportBtn, { backgroundColor: theme.primary }]}
           onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
           accessibilityRole="link"
           accessibilityLabel="Contact support"
