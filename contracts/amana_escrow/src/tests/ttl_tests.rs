@@ -418,4 +418,136 @@ mod ttl_tests {
             PERSISTENT_TTL_EXTEND_TO
         );
     }
+
+    // -----------------------------------------------------------------------
+    // submit_manifest — manifest storage entries follow the same TTL rules as
+    // evidence and video proof entries
+    // -----------------------------------------------------------------------
+
+    impl Ctx {
+        fn funded_trade_with_manifest(&self) -> u64 {
+            let client = self.client();
+            let trade_id = client.create_trade(
+                &self.buyer,
+                &self.seller,
+                &10_000_i128,
+                &5000_u32,
+                &5000_u32,
+                &None,
+            );
+            client.deposit(&trade_id);
+            client.submit_manifest(
+                &trade_id,
+                &self.seller,
+                &String::from_str(&self.env, "driver-name-hash"),
+                &String::from_str(&self.env, "driver-id-hash"),
+            );
+            trade_id
+        }
+    }
+
+    #[test]
+    fn test_submit_manifest_sets_manifest_ttl() {
+        let ctx = Ctx::new(10_000);
+        let trade_id = ctx.funded_trade_with_manifest();
+
+        assert_eq!(
+            ctx.persistent_ttl(&DataKey::Manifest(trade_id)),
+            PERSISTENT_TTL_EXTEND_TO,
+            "submit_manifest must extend the manifest entry to PERSISTENT_TTL_EXTEND_TO"
+        );
+        assert_eq!(
+            ctx.persistent_ttl(&DataKey::Trade(trade_id)),
+            PERSISTENT_TTL_EXTEND_TO,
+            "submit_manifest must extend the trade entry alongside the manifest"
+        );
+        assert!(
+            ctx.persistent_ttl(&DataKey::Manifest(trade_id)) >= MAX_DISPUTE_WINDOW_LEDGERS,
+            "manifest TTL must cover the max dispute window"
+        );
+    }
+
+    #[test]
+    fn test_manifest_is_extended_by_later_trade_writes() {
+        let ctx = Ctx::new(10_000);
+        let trade_id = ctx.funded_trade_with_manifest();
+        let client = ctx.client();
+
+        let seq = ctx.env.ledger().sequence();
+        ctx.env
+            .ledger()
+            .set_sequence_number(seq + PERSISTENT_TTL_EXTEND_TO - 100_000);
+        ctx.keep_instance_alive();
+
+        assert!(
+            ctx.persistent_ttl(&DataKey::Manifest(trade_id)) < PERSISTENT_TTL_EXTEND_TO,
+            "manifest TTL must have decayed after the ledger advance"
+        );
+        assert!(client.get_manifest(&trade_id).is_some());
+
+        // A write that touches the trade (video proof) re-extends the manifest.
+        client.submit_video_proof(
+            &trade_id,
+            &ctx.seller,
+            &String::from_str(&ctx.env, "QmVideoProof"),
+        );
+        assert_eq!(
+            ctx.persistent_ttl(&DataKey::Manifest(trade_id)),
+            PERSISTENT_TTL_EXTEND_TO,
+            "touching the trade must re-extend the manifest entry"
+        );
+    }
+
+    #[test]
+    fn test_manifest_ttl_matches_evidence_and_video_proof() {
+        let ctx = Ctx::new(10_000);
+        let trade_id = ctx.funded_trade_with_manifest();
+        let client = ctx.client();
+
+        client.submit_video_proof(
+            &trade_id,
+            &ctx.seller,
+            &String::from_str(&ctx.env, "QmVideoProof"),
+        );
+        client.initiate_dispute(
+            &trade_id,
+            &ctx.buyer,
+            &String::from_str(&ctx.env, "QmDisputeReason"),
+        );
+        client.submit_evidence(
+            &trade_id,
+            &ctx.buyer,
+            &String::from_str(&ctx.env, "QmEvidence"),
+            &String::from_str(&ctx.env, "QmEvidenceDescription"),
+        );
+
+        let manifest_ttl = ctx.persistent_ttl(&DataKey::Manifest(trade_id));
+        assert_eq!(manifest_ttl, ctx.persistent_ttl(&DataKey::VideoProof(trade_id)));
+        assert_eq!(manifest_ttl, ctx.persistent_ttl(&DataKey::EvidenceList(trade_id)));
+        assert_eq!(
+            manifest_ttl,
+            ctx.persistent_ttl(&DataKey::Evidence(trade_id, ctx.buyer.clone()))
+        );
+    }
+
+    #[test]
+    fn test_manifest_reads_do_not_extend_ttl() {
+        // Reads are documented as not extending TTL for evidence and video
+        // proof; the manifest getter follows the same rule.
+        let ctx = Ctx::new(10_000);
+        let trade_id = ctx.funded_trade_with_manifest();
+        let client = ctx.client();
+
+        let seq = ctx.env.ledger().sequence();
+        ctx.env.ledger().set_sequence_number(seq + 1_000);
+        ctx.keep_instance_alive();
+
+        let before = ctx.persistent_ttl(&DataKey::Manifest(trade_id));
+        assert!(client.get_manifest(&trade_id).is_some());
+        assert_eq!(
+            ctx.persistent_ttl(&DataKey::Manifest(trade_id)),
+            before,
+            "get_manifest is a plain read and must not change the entry TTL"
+        );
+    }
 }

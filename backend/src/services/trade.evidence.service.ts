@@ -2,6 +2,7 @@ import { PrismaClient, TradeStatus } from "@prisma/client";
 import { prisma as defaultPrisma } from "../lib/db";
 import { getAdminAllowlistLowercase } from "../lib/accessControl";
 import { IPFSService } from "./ipfs.service";
+import { ContractService } from "./contract.service";
 
 export type DisputeEvidenceType = "video" | "manifest";
 
@@ -33,11 +34,26 @@ type EvidenceListDatabase = Pick<PrismaClient, "trade" | "dispute" | "tradeEvide
 
 type ListOptions = { type?: DisputeEvidenceType; page: number; limit: number };
 
+/** Reads on-chain tunables; satisfied by `ContractService` (#272). */
+export interface EvidenceLimitsReader {
+  getMaxEvidencePerParty(): Promise<{ value: number; source: "chain" | "default" }>;
+}
+
 export class TradeEvidenceListService {
   constructor(
     private readonly prisma: EvidenceListDatabase = defaultPrisma,
     private readonly ipfs = new IPFSService(),
+    private readonly limitsReader: EvidenceLimitsReader = new ContractService(),
   ) {}
+
+  /**
+   * Per-party evidence cap read from contract state (#272) so clients never
+   * hardcode it. `source` is `default` when chain state was unavailable.
+   */
+  async limits() {
+    const cap = await this.limitsReader.getMaxEvidencePerParty();
+    return { maxEvidencePerParty: cap.value, source: cap.source };
+  }
 
   async list(tradeId: string, callerAddress: string, options: ListOptions) {
     const trade = await this.prisma.trade.findUnique({ where: { tradeId } });
@@ -128,9 +144,10 @@ export class TradeEvidenceListService {
     return this.paginationResponse(items.slice(start, start + options.limit), total, options);
   }
 
-  private paginationResponse<T>(items: T[], total: number, options: ListOptions) {
+  private async paginationResponse<T>(items: T[], total: number, options: ListOptions) {
     return {
       items,
+      limits: await this.limits(),
       pagination: {
         page: options.page,
         limit: options.limit,

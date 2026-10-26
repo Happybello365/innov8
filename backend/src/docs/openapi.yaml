@@ -51,6 +51,7 @@ tags:
   - name: Admin
   - name: Wallet
   - name: Users
+  - name: Reputation
   - name: Trades
   - name: Disputes
   - name: Dispute Categories
@@ -61,6 +62,7 @@ tags:
   - name: Goals
   - name: Stellar
   - name: Meta
+  - name: Notifications
 components:
   securitySchemes:
     bearerAuth:
@@ -823,6 +825,91 @@ components:
       example:
         displayName: innov8 Trader
         avatarUrl: https://cdn.example.com/avatar.png
+    ReputationEvent:
+      type: object
+      description: A reputation-affecting event in a user's trade history (completed trade, dispute initiated, etc.).
+      properties:
+        id:
+          type: string
+          description: Unique identifier for this event.
+        event:
+          type: string
+          description: Human-readable description of the event.
+        impact:
+          type: integer
+          description: Numeric impact on reputation score (negative values indicate reputation loss).
+        impactLabel:
+          type: string
+          description: Human-readable label for the impact (e.g., "+5", "-2").
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp when the event occurred.
+        type:
+          type: string
+          enum: [trade_completed, trade_initiated, dispute_initiated, dispute_resolved, dispute_involved, account_created]
+          description: Classification of the event type.
+      required: [id, event, impact, impactLabel, timestamp, type]
+      example:
+        id: trade-xyz789
+        event: Completed trade as seller (xyz789...)
+        impact: 5
+        impactLabel: "+5"
+        timestamp: "2026-10-15T14:30:00.000Z"
+        type: trade_completed
+    ReputationResponse:
+      type: object
+      description: Complete reputation profile and scoring history for a user.
+      properties:
+        trustScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Overall reputation score ranging from 0 (minimum trust) to 100 (maximum trust).
+        totalTrades:
+          type: integer
+          minimum: 0
+          description: Total number of trades (as buyer or seller) initiated by the user.
+        completedTrades:
+          type: integer
+          minimum: 0
+          description: Count of trades with successful completion status.
+        disputedTrades:
+          type: integer
+          minimum: 0
+          description: Count of trades that entered disputed status.
+        successRate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+          description: Percentage of trades completed successfully, rounded to one decimal place.
+        history:
+          type: array
+          maxItems: 20
+          description: Recent reputation events ordered by timestamp (descending). Limited to 20 most recent events.
+          items:
+            $ref: "#/components/schemas/ReputationEvent"
+      required: [trustScore, totalTrades, completedTrades, disputedTrades, successRate, history]
+      example:
+        trustScore: 72
+        totalTrades: 15
+        completedTrades: 12
+        disputedTrades: 1
+        successRate: 80.0
+        history:
+          - id: trade-abc123
+            event: Completed trade as seller (abc123...)
+            impact: 5
+            impactLabel: "+5"
+            timestamp: "2026-10-15T14:30:00.000Z"
+            type: trade_completed
+          - id: dispute-def456
+            event: Initiated dispute on trade def456...
+            impact: -2
+            impactLabel: "-2"
+            timestamp: "2026-10-14T10:15:00.000Z"
+            type: dispute_initiated
     PatchDisplayNameRequest:
       type: object
       required: [displayName]
@@ -2467,6 +2554,57 @@ paths:
                 error: User not found
         "500":
           $ref: "#/components/responses/InternalError"
+  /users/me/reputation:
+    get:
+      tags: [Reputation]
+      summary: Fetch the authenticated user's reputation profile
+      description: |-
+        Retrieve the complete reputation score and recent history for the authenticated user.
+        Includes trust score (0-100), trade statistics, and recent reputation events.
+        Error code references: `AUTH_ERROR`, `INFRA_ERROR`, `INTERNAL_ERROR`.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Reputation profile for the authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReputationResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /users/{address}/reputation:
+    get:
+      tags: [Reputation]
+      summary: Fetch a user's public reputation profile
+      description: |-
+        Retrieve the complete reputation score and recent history for any user by their Stellar address.
+        This is a public endpoint — no authentication required. Includes trust score (0-100), 
+        trade statistics, and recent reputation events.
+        Error code references: `VALIDATION_ERROR`, `INFRA_ERROR`, `INTERNAL_ERROR`.
+      parameters:
+        - $ref: "#/components/parameters/UserAddressPath"
+      responses:
+        "200":
+          description: Public reputation profile for the specified user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReputationResponse"
+        "400":
+          description: Invalid wallet address format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppErrorResponse"
+              example:
+                code: VALIDATION_ERROR
+                message: Wallet address is required
+                details: {}
+        "500":
+          $ref: "#/components/responses/InternalError"
   /dispute-categories:
     get:
       tags: [Dispute Categories]
@@ -3870,5 +4008,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /notifications/unread-count:
+    get:
+      summary: Get unread notification count
+      description: Returns the number of unread in-app notifications for the authenticated user.
+      operationId: getUnreadNotificationCount
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Unread notification count.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 5
+                required:
+                  - count
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /notifications/read-all:
+    post:
+      summary: Mark all notifications as read
+      description: Marks all unread in-app notifications for the authenticated user as read.
+      operationId: markAllNotificationsRead
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: All notifications marked as read.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: All notifications marked as read
+                  count:
+                    type: integer
+                    description: Number of notifications that were updated.
+                    example: 3
+                required:
+                  - message
+                  - count
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
         "500":
           $ref: "#/components/responses/InternalError"

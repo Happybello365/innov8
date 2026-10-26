@@ -5,5 +5,6 @@
   "resolve_dispute": { "cpu": 8000000, "mem": 4000000 },
   "combined_lifecycle": { "cpu": 19000000, "mem": 11000000 },
   "admin_clawback": { "cpu": 6000000, "mem": 3500000 },
-  "repeated_partial_clawback_5x": { "cpu": 25000000, "mem": 15000000 }
+  "repeated_partial_clawback_5x": { "cpu": 25000000, "mem": 15000000 },
+  "list_mediators_5": { "cpu": 5000000, "mem": 3000000 }
 }

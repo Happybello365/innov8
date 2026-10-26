@@ -12,9 +12,18 @@ import DisputeDetailScreen from '../screens/DisputeDetailScreen';
 import CreateTradeScreen from '../screens/CreateTradeScreen';
 import EvidenceCaptureScreen from '../screens/EvidenceCaptureScreen';
 import VaultDashboard from '../screens/VaultDashboard';
+import GoalContributionHistoryScreen from '../screens/GoalContributionHistoryScreen';
+import ReputationHistoryScreen from '../screens/ReputationHistoryScreen';
 import NotificationsInboxScreen from '../screens/NotificationsInboxScreen';
 import AboutScreen from '../screens/AboutScreen';
+import NotificationPreferencesScreen from '../screens/NotificationPreferencesScreen';
+import SecuritySettingsScreen from '../screens/SecuritySettingsScreen';
 import { useDeepLink } from '../hooks/useDeepLink';
+import {
+  getInitialNotificationData,
+  setupNotificationListeners,
+} from '../services/notification.service';
+import { targetForNotification } from '../services/notificationRouting';
 
 // Admin screens are lazy-loaded and only registered for admin users (issue #100).
 // This keeps the initial JS bundle smaller for the vast majority of users who
@@ -79,7 +88,7 @@ interface AppNavigatorProps {
 }
 
 export function AppNavigator({ isAuthenticated, isAdmin = false }: AppNavigatorProps) {
-  const { handleUrl, resumePendingDeepLink } = useDeepLink();
+  const { handleUrl, handleDeepLink, resumePendingDeepLink } = useDeepLink();
   const navRef = useRef<NavigationContainerRef<RootStackParamList> | null>(null);
   const linking = useMemo(() => makeLinking(isAuthenticated), [isAuthenticated]);
 
@@ -90,6 +99,23 @@ export function AppNavigator({ isAuthenticated, isAdmin = false }: AppNavigatorP
     const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url, navRef.current));
     return () => sub.remove();
   }, [handleUrl]);
+
+  // Push notification taps (issue #259): open the trade the push is about,
+  // or fall back to home when the payload has no usable trade id. Routed
+  // through useDeepLink so a tap while signed out is parked until login.
+  useEffect(() => {
+    let cancelled = false;
+    getInitialNotificationData().then((data) => {
+      if (!cancelled && data) handleDeepLink(targetForNotification(data), navRef.current);
+    });
+    const unsubscribe = setupNotificationListeners((data) =>
+      handleDeepLink(targetForNotification(data), navRef.current),
+    );
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [handleDeepLink]);
 
   // Login-then-continue: replay a parked link once authenticated.
   useEffect(() => {
@@ -120,6 +146,8 @@ export function AppNavigator({ isAuthenticated, isAdmin = false }: AppNavigatorP
         <Stack.Screen name="CreateTrade" component={CreateTradeScreen} />
         <Stack.Screen name="EvidenceCapture" component={EvidenceCaptureScreen} />
         <Stack.Screen name="VaultDashboard" component={VaultDashboard} />
+        <Stack.Screen name="GoalContributionHistory" component={GoalContributionHistoryScreen} />
+        <Stack.Screen name="ReputationHistory" component={ReputationHistoryScreen} />
         {isAdmin && (
           <Suspense
             fallback={
@@ -137,6 +165,8 @@ export function AppNavigator({ isAuthenticated, isAdmin = false }: AppNavigatorP
         )}
         <Stack.Screen name="NotificationsInbox" component={NotificationsInboxScreen} />
         <Stack.Screen name="About" component={AboutScreen} />
+        <Stack.Screen name="NotificationPreferences" component={NotificationPreferencesScreen} />
+        <Stack.Screen name="SecuritySettings" component={SecuritySettingsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

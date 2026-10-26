@@ -24,6 +24,7 @@ const CATALOG: Record<ErrorCode, Omit<ErrorCatalogEntry, "code">> = {
   [ErrorCode.TRADE_ACCESS_DENIED]: { status: 403, message: "Access to this trade is denied" },
   [ErrorCode.TRADE_INVALID_STATUS]: { status: 400, message: "Trade is not in a valid status for this action" },
   [ErrorCode.TRADE_BUILD_FAILED]: { status: 500, message: "Failed to build trade transaction" },
+  [ErrorCode.TRADE_AMOUNT_EXCEEDS_PILOT_CAP]: { status: 400, message: "Trade amount exceeds the pilot limit" },
   [ErrorCode.DISPUTE_INVALID_CATEGORY]: { status: 400, message: "Invalid dispute category" },
   [ErrorCode.DISPUTE_STATUS_TRANSITION_INVALID]: { status: 400, message: "Invalid dispute status transition" },
   [ErrorCode.DISPUTE_STATUS_CONFLICT]: { status: 409, message: "Dispute was modified concurrently" },

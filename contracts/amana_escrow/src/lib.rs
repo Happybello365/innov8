@@ -125,6 +125,9 @@ pub const DEFAULT_QUORUM_VOTE_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
 /// permitted once the window closes.
 pub const DEFAULT_QUORUM_FALLBACK_MIN_WEIGHT: u32 = 2;
 
+/// Reason recorded when `pause()` is called without one (#275).
+pub const DEFAULT_PAUSE_REASON: &str = "unspecified";
+
 /// Weight assigned to a mediator with no explicit weight configured.
 pub const DEFAULT_MEDIATOR_WEIGHT: u32 = 1;
 
@@ -136,6 +139,13 @@ pub const MAX_MEDIATOR_WEIGHT: u32 = 10;
 pub const MIN_FEE_BPS: u32 = 1;
 /// Maximum allowed platform fee in basis points (5%).
 pub const MAX_FEE_BPS: u32 = 500;
+
+/// Maximum evidence records each submitter may add to a single trade (#8, #272).
+///
+/// Buyer, seller and each mediator get this many slots independently, which
+/// bounds the per-trade evidence list and its storage rent. Read it on-chain
+/// via [`EscrowContract::get_max_evidence_per_party`] instead of hardcoding it.
+pub const MAX_EVIDENCE_PER_PARTY: u32 = 10;
 
 fn checked_fee_amount(amount: i128, fee_bps: u32) -> i128 {
     amount
@@ -705,6 +715,22 @@ pub struct QuorumConfig {
     pub fallback_min_weight: u32,
 }
 
+/// A registered mediator and the vote weight it currently carries (#274).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MediatorInfo {
+    pub address: Address,
+    pub weight: u32,
+}
+
+/// Why and when the contract was last paused (#275).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PauseMetadata {
+    pub reason: soroban_sdk::String,
+    pub paused_at: u64,
+}
+
 /// A single mediator's weighted vote on a disputed trade (#195).
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -900,6 +926,12 @@ pub enum DataKey {
     /// `accept_admin()`. Absent means no transfer is in progress.
     /// Stored in instance storage alongside `Admin` (#1).
     PendingAdmin,
+    /// Ordered list of every address currently in the mediator registry, kept
+    /// in step with `MediatorRegistry(Address)` so `list_mediators()` can
+    /// enumerate without replaying events (#274).
+    MediatorList,
+    /// Reason and timestamp recorded by the most recent `pause()` (#275).
+    PauseMetadata,
 }
 
 #[contracttype]
@@ -1013,6 +1045,32 @@ impl EscrowContract {
         }
     }
 
+    /// Appends `mediator` to the enumerable mediator list if absent (#274).
+    fn index_mediator(env: &Env, mediator: &Address) {
+        let mut list: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(env));
+        if list.first_index_of(mediator.clone()).is_none() {
+            list.push_back(mediator.clone());
+            env.storage().persistent().set(&DataKey::MediatorList, &list);
+        }
+    }
+
+    /// Drops `mediator` from the enumerable mediator list if present (#274).
+    fn unindex_mediator(env: &Env, mediator: &Address) {
+        let mut list: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(env));
+        if let Some(idx) = list.first_index_of(mediator.clone()) {
+            list.remove(idx);
+            env.storage().persistent().set(&DataKey::MediatorList, &list);
+        }
+    }
+
     /// Panics with "contract is paused" when the global pause flag is set.
     /// Call this at the top of every state-changing entrypoint.
     fn assert_not_paused(env: &Env) {
@@ -1109,6 +1167,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::MediatorRegistry(mediator.clone()), &true);
+        Self::index_mediator(&env, &mediator);
         MediatorAddedEvent {
             mediator: mediator.clone(),
         }
@@ -1131,6 +1190,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::MediatorRegistry(mediator_address.clone()), &true);
+        Self::index_mediator(&env, &mediator_address);
         MediatorAddedEvent {
             mediator: mediator_address,
         }
@@ -1153,6 +1213,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .remove(&DataKey::MediatorRegistry(mediator_address.clone()));
+        Self::unindex_mediator(&env, &mediator_address);
 
         // Clear legacy slot if it points to the same address
         if let Some(legacy) = env
@@ -1168,6 +1229,24 @@ impl EscrowContract {
             mediator: mediator_address,
         }
         .publish(&env);
+    }
+
+    /// Returns every address currently in the mediator registry together with
+    /// its vote weight (unconfigured mediators carry [`DEFAULT_MEDIATOR_WEIGHT`]).
+    /// The set matches the addresses for which `is_mediator` returns `true`.
+    /// Read-only; callable by anyone.
+    pub fn list_mediators(env: Env) -> Vec<MediatorInfo> {
+        let addresses: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(&env));
+        let mut out: Vec<MediatorInfo> = Vec::new(&env);
+        for address in addresses.iter() {
+            let weight = Self::get_mediator_weight(env.clone(), address.clone());
+            out.push_back(MediatorInfo { address, weight });
+        }
+        out
     }
 
     /// Returns `true` if `address` is currently in the approved mediator registry.
@@ -1221,7 +1300,17 @@ impl EscrowContract {
     }
 
     /// Pauses all state-changing contract operations. Caller must be a guardian.
+    /// Records [`DEFAULT_PAUSE_REASON`] as the reason; use `pause_with_reason`
+    /// to supply one.
     pub fn pause(env: Env, guardian: Address) {
+        let reason = soroban_sdk::String::from_str(&env, DEFAULT_PAUSE_REASON);
+        Self::pause_with_reason(env, guardian, reason);
+    }
+
+    /// Pauses the contract and stores `reason` plus the current ledger
+    /// timestamp, readable through `get_pause_metadata()`. Caller must be a
+    /// guardian (#275).
+    pub fn pause_with_reason(env: Env, guardian: Address, reason: soroban_sdk::String) {
         guardian.require_auth();
         assert!(
             env.storage()
@@ -1231,6 +1320,13 @@ impl EscrowContract {
             "caller is not a guardian"
         );
         env.storage().instance().set(&DataKey::Paused, &true);
+        env.storage().instance().set(
+            &DataKey::PauseMetadata,
+            &PauseMetadata {
+                reason,
+                paused_at: env.ledger().timestamp(),
+            },
+        );
         Self::bump_instance_ttl(&env);
     }
 
@@ -1256,6 +1352,13 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+    }
+
+    /// Returns the reason and timestamp of the most recent pause, or `None` if
+    /// the contract has never been paused (#275). The record is retained after
+    /// `unpause()` as an audit trail; check `is_paused()` for current state.
+    pub fn get_pause_metadata(env: Env) -> Option<PauseMetadata> {
+        env.storage().instance().get(&DataKey::PauseMetadata)
     }
 
     // -----------------------------------------------------------------------
@@ -3089,6 +3192,35 @@ impl EscrowContract {
     ///   treasury         = 88                   → treasury
     ///
     /// Verification: 8_712 + 1_200 + 88 = 10_000 ✓
+    ///
+    /// # Parameters
+    ///
+    /// - `trade_id` — the disputed trade.
+    /// - `mediator` — the approved mediator issuing the ruling; must sign.
+    /// - `seller_gets_bps` — share of the escrow awarded to the seller, in
+    ///   basis points (`0..=10_000`). `10_000` releases everything to the
+    ///   seller, `0` refunds everything to the buyer (minus loss-sharing).
+    ///
+    /// # Authorization
+    ///
+    /// `mediator.require_auth()`; `mediator` must be in the mediator registry
+    /// (or be the legacy single mediator).
+    ///
+    /// # Panics
+    ///
+    /// - `mediator` is not an approved mediator, or did not authorize the call.
+    /// - `seller_gets_bps > 10_000`.
+    /// - The trade value is at or above the quorum threshold
+    ///   (`"Trade value requires a mediator quorum; use cast_dispute_vote"`).
+    /// - The trade does not exist or is not in `Disputed` status.
+    /// - A payout would be negative or would break cNGN conservation
+    ///   (internal invariant; indicates a bug).
+    ///
+    /// # See also
+    ///
+    /// - [`EscrowContract::cast_dispute_vote`] for high-value (quorum) disputes.
+    /// - `docs/mediator-quorum.md` for when each resolution path applies.
+    /// - `docs/money-math-invariant-catalog.md` for the payout invariants.
     pub fn resolve_dispute(env: Env, trade_id: u64, mediator: Address, seller_gets_bps: u32) {
         // 1. Verify caller is the registered mediator
         let mediator = Self::require_mediator(&env, mediator);
@@ -3349,6 +3481,34 @@ impl EscrowContract {
     /// - The trade does not require quorum (use `resolve_dispute`).
     /// - This mediator has already voted.
     /// - `rationale_hash` is empty or oversized.
+    ///
+    /// # Parameters
+    ///
+    /// - `trade_id` — the disputed, quorum-requiring trade.
+    /// - `mediator` — the approved mediator casting the vote; must sign.
+    /// - `seller_gets_bps` — the outcome voted for, in basis points
+    ///   (`0..=10_000`), with the same meaning as in
+    ///   [`EscrowContract::resolve_dispute`].
+    /// - `rationale_hash` — non-empty hash/CID of the written rationale, at
+    ///   most `MAX_HASH_LEN` bytes.
+    ///
+    /// # Authorization
+    ///
+    /// `mediator.require_auth()`; `mediator` must be an approved mediator. Its
+    /// configured weight (default `DEFAULT_MEDIATOR_WEIGHT`) is counted
+    /// towards the outcome it votes for.
+    ///
+    /// # Panics
+    ///
+    /// Panics on each condition listed under "Reverts if" above, and when
+    /// `seller_gets_bps > 10_000`.
+    ///
+    /// # See also
+    ///
+    /// - [`EscrowContract::resolve_dispute_by_fallback`] when quorum is not
+    ///   reached before the vote window closes.
+    /// - [`EscrowContract::get_dispute_votes`] to read the votes cast so far.
+    /// - `docs/mediator-quorum.md`.
     pub fn cast_dispute_vote(
         env: Env,
         trade_id: u64,
@@ -3453,6 +3613,30 @@ impl EscrowContract {
     /// Ties resolve to the lowest `seller_gets_bps` among the tied outcomes —
     /// the buyer-protective reading, since the buyer is the party whose funds
     /// are held and who did not receive the goods in question.
+    ///
+    /// # Parameters
+    ///
+    /// - `trade_id` — the disputed, quorum-requiring trade.
+    /// - `caller` — the buyer, the seller, or any approved mediator; must sign.
+    ///
+    /// # Authorization
+    ///
+    /// `caller.require_auth()`; `caller` must be a party to the trade or an
+    /// approved mediator.
+    ///
+    /// # Panics
+    ///
+    /// - The trade does not exist or is not in `Disputed` status.
+    /// - `caller` is neither a trade party nor an approved mediator.
+    /// - The trade does not require quorum (use [`EscrowContract::resolve_dispute`]).
+    /// - No votes have been cast on the dispute.
+    /// - The vote window has not closed yet.
+    /// - The total vote weight is below `fallback_min_weight`.
+    ///
+    /// # See also
+    ///
+    /// - [`EscrowContract::cast_dispute_vote`] for the normal quorum path.
+    /// - `docs/mediator-quorum.md` for the fallback rules.
     pub fn resolve_dispute_by_fallback(env: Env, trade_id: u64, caller: Address) {
         caller.require_auth();
 
@@ -3600,76 +3784,8 @@ impl EscrowContract {
     /// `ipfs_hash` is typically an IPFS CID pointing to the evidence content.
     /// `description_hash` is an optional IPFS CID or hash describing the evidence.
     ///
-    // =========================================================================
-    // Issue #8 — Bound the number of evidence records per trade
-    // https://github.com/Happybello365/innov8/issues/8
-    //
-    // PROBLEM
-    // -------
-    // submit_evidence appends to a per-trade list with no upper bound.
-    // A party in a dispute could call submit_evidence in a loop, inflating
-    // the persistent storage (and rent) for the trade entry indefinitely.
-    // Every subsequent read/write to that trade pays higher gas.
-    //
-    // FIX
-    // ---
-    // Add a constant cap per party per trade:
-    //
-    //   /// Maximum evidence submissions allowed per party per trade.
-    //   /// Buyer, seller, and mediator each get this many slots independently.
-    //   /// Prevents unbounded storage growth during disputes.
-    //   pub const MAX_EVIDENCE_PER_PARTY: u32 = 10;
-    //
-    // At the start of submit_evidence, after verifying is_party/is_mediator,
-    // count existing submissions from the caller:
-    //
-    //   let evidence_key = DataKey::Evidence(trade_id);
-    //   let existing: Vec<EvidenceRecord> = env
-    //       .storage()
-    //       .persistent()
-    //       .get(&evidence_key)
-    //       .unwrap_or_else(|| Vec::new(&env));
-    //
-    //   let caller_count = existing.iter()
-    //       .filter(|r| r.submitter == caller)
-    //       .count() as u32;
-    //
-    //   if caller_count >= MAX_EVIDENCE_PER_PARTY {
-    //       panic_with_error!(&env, Error::EvidenceLimitExceeded);
-    //   }
-    //
-    // Add a new error variant:
-    //   EvidenceLimitExceeded = <next_available_code>,
-    //
-    // DOCUMENTATION
-    // -------------
-    // Add to docs/contract-error-codes.md:
-    //   | EvidenceLimitExceeded | NNN | Caller has submitted the maximum
-    //     number of evidence records (MAX_EVIDENCE_PER_PARTY = 10) for this trade |
-    //
-    // The constant MAX_EVIDENCE_PER_PARTY must also be documented in the
-    // contract README / SECURITY.md under "Dispute Mechanics".
-    //
-    // TESTS TO ADD (contracts/amana_escrow/src/tests/ttl_tests.rs)
-    // -------------------------------------------------------------
-    //   test_evidence_cap_boundary_accepted()
-    //     Submit exactly MAX_EVIDENCE_PER_PARTY items from buyer.
-    //     Assert: all succeed.
-    //
-    //   test_evidence_cap_boundary_plus_one_rejected()
-    //     Submit MAX_EVIDENCE_PER_PARTY + 1 items from buyer.
-    //     Assert: last call returns Err(Ok(Error::EvidenceLimitExceeded)).
-    //
-    //   test_evidence_cap_is_per_party()
-    //     Submit MAX_EVIDENCE_PER_PARTY from buyer AND MAX_EVIDENCE_PER_PARTY
-    //     from seller in the same trade.
-    //     Assert: all succeed (each party gets their own cap, not a shared one).
-    //
-    // FILES TO MODIFY
-    // ---------------
-    //   contracts/amana_escrow/src/lib.rs     ← (THIS FUNCTION) add cap check
-    //   contracts/amana_escrow/src/tests/ttl_tests.rs ← add boundary tests
-    //   docs/contract-error-codes.md          ← add EvidenceLimitExceeded
+    // Issue #8 / #272: each submitter is capped at MAX_EVIDENCE_PER_PARTY
+    // records per trade; the cap is readable via get_max_evidence_per_party.
     // =========================================================================
     // Issue #10 — Add a lightweight get_trade_status getter
     // https://github.com/Happybello365/innov8/issues/10
@@ -3785,6 +3901,17 @@ impl EscrowContract {
             .get(&evidence_key)
             .unwrap_or(Vec::new(&env));
 
+        // Per-submitter cap (#8). The same value is exposed read-only through
+        // get_max_evidence_per_party (#272) so off-chain clients never drift.
+        let caller_count = evidence_list
+            .iter()
+            .filter(|r| r.submitter == caller)
+            .count() as u32;
+        assert!(
+            caller_count < Self::get_max_evidence_per_party(env.clone()),
+            "Evidence limit per party exceeded"
+        );
+
         // Create new evidence record
         let now = env.ledger().timestamp();
         let record = EvidenceRecord {
@@ -3818,6 +3945,16 @@ impl EscrowContract {
             evidence_hash: legacy_bytes,
         }
         .publish(&env);
+    }
+
+    /// Maximum number of evidence records a single submitter may add to one
+    /// trade (#272).
+    ///
+    /// Read-only and auth-free. This is the exact value `submit_evidence`
+    /// enforces, so the backend and frontends can read it from chain state
+    /// instead of hardcoding [`MAX_EVIDENCE_PER_PARTY`].
+    pub fn get_max_evidence_per_party(_env: Env) -> u32 {
+        MAX_EVIDENCE_PER_PARTY
     }
 
     /// Return all evidence records submitted for a trade, in chronological order.

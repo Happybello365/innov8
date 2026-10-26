@@ -1,10 +1,56 @@
 import type { Metadata } from "next";
+import { BookOpen, ExternalLink, HelpCircle, MessageCircle, Shield, Zap } from "lucide-react";
 import { FAQ_SECTIONS, SUPPORT_EMAIL } from "./faq";
 
 export const metadata: Metadata = {
   title: "Help & FAQ",
   description: "Answers to common questions about fees, disputes and cNGN, and how to contact support.",
 };
+
+const EXTERNAL_RESOURCES = [
+  {
+    href: "https://docs.innov8.finance",
+    title: "Documentation",
+    description: "Full guides, API reference, and integration tutorials.",
+    Icon: BookOpen,
+  },
+  {
+    href: "https://discord.gg/innov8",
+    title: "Community Discord",
+    description: "Chat with the community and get help from other traders.",
+    Icon: MessageCircle,
+  },
+  {
+    href: "https://status.innov8.finance",
+    title: "System Status",
+    description: "Check live uptime and incident history.",
+    Icon: Zap,
+  },
+  {
+    href: "https://www.freighter.app",
+    title: "Freighter Wallet",
+    description: "Official Stellar browser extension",
+    Icon: Shield,
+  },
+  {
+    href: "https://developers.stellar.org",
+    title: "Stellar Developer Docs",
+    description: "Network documentation and SDKs",
+    Icon: BookOpen,
+  },
+  {
+    href: "https://github.com/Happybello365/innov8/issues",
+    title: "Report a Bug",
+    description: "Open an issue on GitHub",
+    Icon: HelpCircle,
+  },
+  {
+    href: "https://github.com/Happybello365/innov8",
+    title: "Source Code",
+    description: "Innov8 is open-source on GitHub",
+    Icon: Zap,
+  },
+];
 
 export default function HelpPage() {
   return (
@@ -49,6 +95,32 @@ export default function HelpPage() {
           ))}
         </section>
       ))}
+
+      <section aria-labelledby="resources-title" className="space-y-3">
+        <h2 id="resources-title" className="text-xl font-semibold text-text-primary">
+          External resources
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {EXTERNAL_RESOURCES.map(({ href, title, description, Icon }) => (
+            <a
+              key={href}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between gap-3 rounded-lg border border-border-default bg-bg-elevated p-4 hover:border-gold"
+            >
+              <span className="flex items-center gap-3">
+                <Icon aria-hidden="true" className="h-5 w-5 shrink-0 text-gold" />
+                <span>
+                  <span className="block font-medium text-text-primary">{title}</span>
+                  <span className="block text-sm text-text-secondary">{description}</span>
+                </span>
+              </span>
+              <ExternalLink aria-hidden="true" className="h-4 w-4 shrink-0 text-text-secondary" />
+            </a>
+          ))}
+        </div>
+      </section>
 
       <section
         id="contact"

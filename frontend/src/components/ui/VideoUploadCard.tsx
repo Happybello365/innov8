@@ -87,6 +87,7 @@ export function VideoUploadCard({ onUpload }: VideoUploadCardProps) {
         role="button"
         tabIndex={0}
         aria-label="Upload delivery proof video — drag and drop or press Enter to browse"
+        aria-describedby={error ? "video-upload-error" : undefined}
         aria-disabled={uploading}
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
@@ -131,6 +132,8 @@ export function VideoUploadCard({ onUpload }: VideoUploadCardProps) {
         type="file"
         accept="video/mp4,video/webm"
         aria-label="Choose proof video file"
+        aria-describedby={error ? "video-upload-error" : undefined}
+        aria-invalid={Boolean(error)}
         aria-hidden={false}
         tabIndex={-1}
         className="hidden file:rounded-full file:bg-elevated file:text-gold"
@@ -155,7 +158,7 @@ export function VideoUploadCard({ onUpload }: VideoUploadCardProps) {
 
       {/* Error — announced to AT */}
       {error && (
-        <p role="alert" aria-live="polite" className="mt-3 text-xs text-status-danger">{error}</p>
+        <p id="video-upload-error" role="alert" aria-live="polite" className="mt-3 text-xs text-status-danger">{error}</p>
       )}
 
       {/* IPFS hash link */}
