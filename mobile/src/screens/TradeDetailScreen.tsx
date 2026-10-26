@@ -340,7 +340,12 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity 
+            onPress={() => navigation.goBack()}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <Text style={styles.backText}>← Back</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Trade Detail</Text>
@@ -373,11 +378,24 @@ export default function TradeDetailScreen({ route, navigation }: Props) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} testID="back-btn">
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          testID="back-btn"
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Trade Detail</Text>
-        <TouchableOpacity onPress={handleShare} style={{ width: 60, alignItems: 'flex-end' }} testID="share-btn">
+        <TouchableOpacity 
+          onPress={handleShare} 
+          style={{ width: 60, alignItems: 'flex-end' }}
+          testID="share-btn"
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel="Share trade"
+        >
           <Text style={styles.shareText}>Share</Text>
         </TouchableOpacity>
       </View>

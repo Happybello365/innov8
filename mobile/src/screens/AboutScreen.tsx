@@ -31,7 +31,12 @@ export default function AboutScreen({ navigation }: Props) {
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.background }]}>
       <View style={[styles.header, { backgroundColor: theme.headerBg, borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={[styles.backBtn, { color: theme.primary }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>About</Text>
