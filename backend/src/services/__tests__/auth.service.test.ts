@@ -94,7 +94,9 @@ describe('AuthService', () => {
       expect(token).toBeDefined();
       expect(redisMock.get).toHaveBeenCalled();
       expect(redisMock.del).toHaveBeenCalled();
-      expect(findOrCreateUser).toHaveBeenCalledWith(realWallet);
+      // auth.service normalises walletAddress before forwarding it to
+      // findOrCreateUser, so the call always uses the lowercase form.
+      expect(findOrCreateUser).toHaveBeenCalledWith(realWallet.toLowerCase());
       
       const decoded = jwt.verify(token, 'test-secret') as JWTPayload;
       expect(decoded.sub).toBe(realWallet.toLowerCase());
