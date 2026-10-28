@@ -3,6 +3,8 @@ import path from 'path';
 
 // Define expected keys by manually parsing env.ts or we could try to import if we mock processEnv
 // Let's parse env.ts text to avoid schema validation failure on import
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.join(__dirname, '../src/config/env.ts');
 const envExamplePath = path.join(__dirname, '../.env.example');
 
