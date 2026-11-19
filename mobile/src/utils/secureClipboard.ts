@@ -14,7 +14,7 @@ import * as Clipboard from 'expo-clipboard';
 export const SENSITIVE_CLIPBOARD_CLEAR_MS = 60_000;
 
 export interface SecureClipboardDeps {
-  setString: (value: string) => Promise<void>;
+  setString: (value: string) => Promise<unknown>;
   getString: () => Promise<string>;
   confirm: (label: string) => Promise<boolean>;
   schedule: (fn: () => void, ms: number) => unknown;

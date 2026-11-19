@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   ScrollView,
   StyleSheet,
@@ -23,6 +24,12 @@ import {
   SigningError,
   submitAndConfirm,
 } from '../services/adminSigning';
+import {
+  buildSigningPreview,
+  formatSigningPreviewMessage,
+  SigningPreviewError,
+  type SigningPreview,
+} from '../services/signingPreview';
 
 type Props = StackScreenProps<RootStackParamList, 'AdminContract'>;
 
@@ -43,7 +50,26 @@ function SignPanel({ unsignedXdr, testID }: { unsignedXdr: string; testID: strin
   const [state, setState] = useState<SignState>('idle');
   const busy = state === 'submitting';
 
-  const openWallet = () => void Linking.openURL(buildSep7Uri(unsignedXdr));
+  // Show what the wallet will sign before handing the XDR over (#513).
+  // Fails closed: if the transaction cannot be decoded, the wallet is never opened.
+  const openWallet = () => {
+    let preview: SigningPreview;
+    try {
+      preview = buildSigningPreview(unsignedXdr);
+    } catch (error: unknown) {
+      Alert.alert(
+        'Cannot sign',
+        error instanceof SigningPreviewError
+          ? `${error.message}. The transaction was not sent to your wallet.`
+          : 'The transaction could not be previewed, so it was not sent to your wallet.',
+      );
+      return;
+    }
+    Alert.alert('Review before signing', formatSigningPreviewMessage(preview), [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Open wallet', onPress: () => void Linking.openURL(buildSep7Uri(unsignedXdr)) },
+    ]);
+  };
 
   const submit = async () => {
     if (busy || state === 'confirmed' || !signedXdr.trim()) return;
