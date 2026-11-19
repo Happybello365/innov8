@@ -91,3 +91,37 @@ test.describe("Route smoke matrix: buyer / seller", () => {
     await expect(page).toHaveURL(/\/access-denied/);
   });
 });
+
+const MEDIATOR_ADDRESS = "GMEDIATOR5K6H6D5E7ZQY5W3J2L7F8K9B0N1M2P3Q4R5S6T7U8V9W0X1";
+const ADMIN_ADDRESS = "GDNM7WSJ7VIUVK2TSZ2OQES5XR2663TZEIBFXRDT56B5IRLHERVWSXMU";
+
+test.describe("Route smoke matrix: mediator", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedWallet(page, MEDIATOR_ADDRESS);
+  });
+
+  test("mediator dispute queue renders", async ({ page }) => {
+    await expectRouteRenders(page, "/mediator/disputes");
+  });
+});
+
+test.describe("Route smoke matrix: admin", () => {
+  const ADMIN_ROUTES = ["/admin/dashboard", "/admin/streams", "/admin/audit"];
+
+  test.beforeEach(async ({ page }) => {
+    await seedWallet(page, ADMIN_ADDRESS);
+    await page.addInitScript(
+      ({ addr }) => {
+        (window as Window & { __NEXT_PUBLIC_ADMIN_WALLETS?: unknown }).__NEXT_PUBLIC_ADMIN_WALLETS = addr;
+      },
+      { addr: ADMIN_ADDRESS },
+    );
+  });
+
+  for (const path of ADMIN_ROUTES) {
+    test(`admin route ${path} renders for an admin wallet`, async ({ page }) => {
+      await expectRouteRenders(page, path);
+      await expect(page).not.toHaveURL(/\/access-denied/);
+    });
+  }
+});
