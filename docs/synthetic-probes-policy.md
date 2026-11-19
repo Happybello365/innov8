@@ -76,6 +76,23 @@ touch no production tables. Rotate these secrets on the same quarterly
 cadence as other operational secrets — see
 [secrets-policy.md](./secrets-policy.md).
 
+## Dispute journey (opt-in, #565)
+
+Set `SYNTHETIC_PROBE_DISPUTE=1` and `SYNTHETIC_PROBE_MEDIATOR_SECRET` (a
+dedicated low-value testnet mediator account) to run the dispute journey after
+the trade reaches `FUNDED`, in place of confirm/release:
+
+1. **Buyer opens dispute** — `POST /trades/:id/dispute` (category from
+   `SYNTHETIC_PROBE_DISPUTE_CATEGORY`, default `non_delivery`).
+2. **Mediator locates dispute** — `GET /disputes`, matched on the probe `tradeId`.
+3. **Buyer evidence requested** — `POST /disputes/:id/evidence-requests`.
+4. **Transitions** — `UNDER_REVIEW`, then `RESOLVED` via `POST /disputes/:id/transition`.
+5. **Settlement outcome** — polls `GET /trades/:id` for up to 60s until the
+   status is one of `COMPLETED`, `CANCELLED` or `DISPUTED`.
+
+The journey is not scheduled by default. Dispute failures are categorised
+`app`, except the mediator login, which is `infra`.
+
 ## 5. Pre-release hook
 
 Before promoting a release candidate to production, check the most recent
