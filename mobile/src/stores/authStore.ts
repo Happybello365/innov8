@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import { setSessionRevokedHandler } from '../api/client';
 
 const TOKEN_KEY = 'innov8_token';
 const LEGACY_TOKEN_KEY = 'amana_token';
@@ -85,3 +86,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ token: null, refreshToken: null, walletAddress: null, isAdmin: false });
   },
 }));
+
+// Drop local credentials as soon as the server reports the session revoked (#515).
+setSessionRevokedHandler(() => useAuthStore.getState().clearAuth());
