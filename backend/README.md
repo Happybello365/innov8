@@ -30,6 +30,16 @@ It handles trade orchestration, Supabase metadata, IPFS/Pinata uploads, Stellar 
 - OpenTelemetry tracing with Jaeger/Prometheus/Zipkin exporters
 - Jest test suite for backend behavior
 
+## Observability
+
+Operational observability conventions are documented in `backend/docs/`:
+
+- [Observability field dictionary](./docs/observability-field-dictionary.md) — correlation IDs, trace/span names, metric labels, and cardinality limits
+- [Tail-based trace sampling](./docs/tail-based-trace-sampling.md)
+- [Business KPI metrics](./docs/business-kpi-metrics.md)
+- [Health probe semantics](./docs/health-probe-semantics.md)
+- [PII log scanning](./docs/pii-log-scanning.md)
+
 ## Getting Started
 
 ### Prerequisites
@@ -97,12 +107,132 @@ npx jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatte
 CI runs this suite as a separate named step (`Admin auth regression suite`) so any
 regression in admin authentication causes CI to fail independently of the full test suite.
 
-## Notes
+## Path Payments (NGN → cNGN) — User Guide
 
-- `prisma/` contains schema and seed logic for the backend database.
-- `src/` contains the Express server, routes, middleware, services, and docs.
-- `dist/` is the compiled output directory created by `npm run build`.
+When a buyer pays for a trade, they can pay in **NGN** (their local currency) while the
+escrow holds value in **cNGN** (the stablecoin used for settlement). Amana does this with a
+Stellar **path payment**: the network finds a route from NGN to cNGN and converts the
+amount in a single transaction, so the buyer never has to hold cNGN themselves.
 
-## Repository Scope
+### How a path payment works, in plain language
 
-This backend service lives inside the `backend/` folder of the Amana monorepo and provides the API, database, and infrastructure integration for the project.
+1. The buyer confirms the trade amount in NGN.
+2. Amana asks Stellar to convert that NGN into cNGN along the best available path.
+3. The converted cNGN is deposited into the escrow contract and held until delivery is verified.
+4. On successful delivery, settlement runs as described in the loss-sharing examples below.
+
+If no route exists or the route cannot deliver the required cNGN, the payment fails and
+**no funds move** — the buyer is not charged.
+
+### Slippage
+
+Prices on the Stellar network can move slightly between the moment a quote is shown and
+the moment the transaction is submitted. **Slippage** is the small difference between the
+expected cNGN amount and the amount actually received.
+
+- Amana sets a **maximum slippage tolerance** on every path payment. If the route would
+deliver less cNGN than the tolerance allows, the transaction is rejected instead of
+silently accepting a worse rate.
+- The buyer sees the quoted amount and the tolerance before confirming. If the rate moves
+beyond the tolerance, they can retry to get a fresh quote.
+- Slippage protection is a safety limit, not a fee — it never costs the buyer money on its own.
+
+### Fees
+
+Path payments involve two separate costs, and it helps to keep them apart:
+
+- **Network fee**: a small Stellar network fee (a fraction of a cent) paid to submit the
+transaction. It is charged only when a transaction is actually submitted.
+- **Platform fee**: the flat **1%** Amana fee, deducted from the settled trade value at
+settlement time (see the loss-sharing examples). It is not part of the path payment itself.
+
+Conversion along the path does not add a hidden Amana markup; the buyer pays the quoted
+NGN amount plus the network fee.
+
+### Retry behavior and failure states
+
+Path payments can fail for reasons outside anyone's control (rate movement, temporary
+liquidity gaps, network congestion). Amana handles these predictably:
+
+- **Slippage exceeded**: the transaction is rejected before funds move. The buyer can retry
+  to receive a fresh quote; nothing is deducted.
+- **No path found**: Stellar could not find a route from NGN to cNGN. The payment fails
+  cleanly and the buyer is prompted to retry later.
+- **Insufficient balance**: the buyer's NGN balance does not cover the quoted amount plus the
+  network fee. The payment is rejected with a validation error and no funds move.
+- **Network/timeout errors**: transient failures are safe to retry. Amana never double-charges;
+  a transaction that did not confirm on-chain is not treated as paid.
+- **Already-settled trade**: retries against a trade that has already been funded or settled
+  are rejected so the escrow cannot be funded twice.
+
+In every failure case the escrow balance is unchanged, and error responses never include
+wallet secrets, private keys, or personal data.
+
+## Loss-Sharing Examples Workbook
+
+Worked examples for how escrow settlement splits funds between buyer and seller when a
+trade completes fully, partially, or fails in transit. All amounts are in cNGN and use
+whole-unit arithmetic; the platform fee is a flat **1%** of the settled trade value.
+
+### Conventions
+
+- `tradeValue` — agreed price of the goods (cNGN).
+- `lossRatio` — seller's share of any transit loss, expressed as a percentage (e.g. `50` = 50/50 split, `70` = 70/30 split where the seller bears 70%).
+- `platformFee` — `floor(tradeValue * 0.01)` in cNGN, deducted from the settled amount before loss sharing.
+- Rounding is always **down** (floor) to the nearest whole cNGN so the escrow never pays out more than it holds. Any remainder stays in the escrow contract.
+
+### Example 1 — Full delivery, 50/50 loss ratio
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 100,000 cNGN |
+| platformFee (1%) | 1,000 cNGN |
+| settled amount | 99,000 cNGN |
+| loss | 0 cNGN |
+| seller payout | 99,000 cNGN |
+| buyer refund | 0 cNGN |
+
+No loss occurred, so the loss ratio is not applied. The seller receives the full settled amount.
+
+### Example 2 — Partial delivery with a 50/50 loss ratio
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 100,000 cNGN |
+| platformFee (1%) | 1,000 cNGN |
+| settled amount | 99,000 cNGN |
+| loss (spoilage in transit) | 20,000 cNGN |
+| seller bears (50%) | 10,000 cNGN |
+| buyer bears (50%) | 10,000 cNGN |
+| seller payout | 89,000 cNGN |
+| buyer refund | 10,000 cNGN |
+
+### Example 3 — Partial delivery with a 70/30 loss ratio
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 100,000 cNGN |
+| platformFee (1%) | 1,000 cNGN |
+| settled amount | 99,000 cNGN |
+| loss | 20,000 cNGN |
+| seller bears (70%) | 14,000 cNGN |
+| buyer bears (30%) | 6,000 cNGN |
+| seller payout | 85,000 cNGN |
+| buyer refund | 6,000 cNGN |
+
+### Example 4 — Rounding with a 50/50 loss ratio
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 10,001 cNGN |
+| platformFee (1%, floored) | 100 cNGN |
+| settled amount | 9,901 cNGN |
+| loss | 1,001 cNGN |
+| seller bears (50%, floored) | 500 cNGN |
+| buyer bears (50%, floored) | 500 cNGN |
+| seller payout | 9,401 cNGN |
+| buyer refund | 500 cNGN |
+| remainder retained | 1 cNGN |
+
+Rounding down on both the fee and the loss split leaves a 1 cNGN remainder in the escrow
+contract; it is never paid out.
