@@ -54,6 +54,10 @@ cp .env.example .env
 cp .env.tracing.example .env.tracing
 ```
 
+Never commit `.env` or `.env.tracing`; they hold secrets (Supabase keys, Pinata JWT, Stellar keys).
+If a required variable is missing the server fails fast at startup with a clear error instead of
+running with partial configuration.
+
 ### Run in development
 
 ```bash
@@ -96,6 +100,93 @@ npx jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatte
 
 CI runs this suite as a separate named step (`Admin auth regression suite`) so any
 regression in admin authentication causes CI to fail independently of the full test suite.
+
+## Local Full-Stack Development
+
+This section describes one reproducible setup that brings up every Amana stack
+(frontend, backend, mobile, contracts, Supabase, and tracing) on a single machine.
+
+### Ports and services
+
+| Service | Default URL / port | Notes |
+| --- | --- | --- |
+| Backend API | `http://localhost:3000` | Express server (`npm run dev`) |
+| Frontend | `http://localhost:5173` | Vite dev server |
+| Mobile | Expo dev client | Connects to backend via `EXPO_PUBLIC_API_URL` |
+| Supabase | `http://localhost:54321` | `supabase start` local stack |
+| Jaeger UI | `http://localhost:16686` | Trace viewer |
+| OTLP collector | `http://localhost:4318` | HTTP trace ingest |
+
+### 1. Supabase (database + auth)
+
+```bash
+# from repo root
+supabase start          # boots Postgres, Auth, Storage, Studio locally
+supabase db reset       # applies migrations + seed data
+```
+
+Copy the printed `API URL` and `anon`/`service_role` keys into `backend/.env`.
+
+### 2. Backend
+
+```bash
+cd backend
+npm install
+cp .env.example .env
+cp .env.tracing.example .env.tracing
+npm run dev
+```
+
+### 3. Frontend
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # set VITE_API_URL=http://localhost:3000
+npm run dev
+```
+
+### 4. Mobile
+
+```bash
+cd mobile
+npm install
+cp .env.example .env         # set EXPO_PUBLIC_API_URL=http://localhost:3000
+npm start
+```
+
+Use your machine's LAN IP instead of `localhost` when running on a physical device.
+
+### 5. Contracts (Soroban)
+
+```bash
+cd contracts
+cargo test                   # unit tests for escrow contracts
+stellar contract build       # produces WASM artifacts
+```
+
+Deploy to a local network with `stellar network start local` before invoking contracts.
+
+### 6. Tracing
+
+Start Jaeger with OTLP enabled, then point the backend at it via `.env.tracing`:
+
+```bash
+docker run --rm -p 16686:16686 -p 4318:4318 \
+  jaegertracing/all-in-one:latest
+```
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` and restart the backend.
+Open `http://localhost:16686` and select the `amana-backend` service to inspect traces.
+
+### Failure states
+
+- If Supabase is not running, backend startup fails fast with a connection error — start
+  Supabase first, then the backend.
+- If tracing is unreachable, the backend logs a warning and continues serving traffic;
+  tracing is best-effort and never blocks requests.
+- If a required env var is missing, the process exits with a message naming the variable
+  (never printing its value).
 
 ## Notes
 
