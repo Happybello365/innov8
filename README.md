@@ -1,207 +1,89 @@
-# 🌾 innov8: Trust as a Service for Agricultural Products
+# innov8
 
-![Stellar](https://img.shields.io/badge/Network-Stellar-black?style=for-the-badge&logo=stellar)
-![Soroban](<https://img.shields.io/badge/Contracts-Soroban%20(Rust)-orange?style=for-the-badge>)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+Agricultural escrow platform for fair, transparent settlement between farmers, buyers, and logistics partners.
 
-**innov8** is a decentralized escrow protocol designed to secure agricultural trade across different regions. By leveraging **Soroban Smart Contracts**, Amana eliminates the "Trust Gap" between buyers and sellers, ensuring fair trade even when parties are hundreds of miles apart.
+## Loss-sharing examples workbook
 
-This is the main repository containing the smart contracts and orchestration logic. Backend, frontend, and mobile applications are maintained in this monorepo for simpler development and unified deployment.
+This workbook documents worked examples for loss ratios, rounding, fees, and partial delivery outcomes. All figures are illustrative and use whole currency units unless stated otherwise. No real account, party, or personal data is used in these examples.
 
----
+### 1. Loss ratio
 
-## 🚀 The Mission
+Loss ratio = `total_loss / total_escrowed_value`.
 
-To provide a programmable safety net for regional commodity trading. Amana ensures that the risk of "sending first" is eliminated, replaced by a secure, neutral vault that only releases funds when delivery is verified.
+| Escrowed value | Loss | Loss ratio |
+| --- | --- | --- |
+| 10,000 | 1,000 | 0.10 (10%) |
+| 10,000 | 2,500 | 0.25 (25%) |
+| 10,000 | 0 | 0.00 (0%) |
+| 10,000 | 10,000 | 1.00 (100%) |
 
-## 🛠 Features
+Edge cases:
 
-- **Smart Escrow:** Secure funds holding using cNGN/stablecoins on the Stellar network.
-- **Dynamic Loss Sharing:** Negotiable risk-sharing ratios (e.g., 50/50, 70/30) hardcoded into every trade to handle transit accidents or theft.
-- **Proof-of-Delivery (PoD):** An optional video-based verification protocol involving the buyer and the driver to confirm the state of goods. Video evidence can be submitted and stored on IPFS for dispute resolution.
-- **Volatility Protection:** Utilizes Stellar Path Payments to allow users to pay in local currency (NGN) while locking value in cNGN.
-- **Automated Settlement:** A flat 1% platform fee is automatically deducted upon successful trade completion.
+- Escrowed value of `0` is invalid input; the ratio is undefined and the settlement must be rejected rather than divided by zero.
+- Loss greater than escrowed value is rejected as invalid input.
+- A loss ratio of `1.00` means the full escrow is consumed by loss; fees are not charged on top of the loss.
 
-## 🏗 Technical Stack
+### 2. Rounding
 
-- **Frontend:** [Next.js](https://nextjs.org/) (App Router)
-- **Smart Contracts:** [Soroban](https://soroban.stellar.org/) (Rust)
-- **Blockchain:** [Stellar Network](https://www.stellar.org/)
-- **Wallet Connection:** [Freighter](https://www.freighter.app/) / [Albedo](https://albedo.link/)
-- **Storage:** IPFS (via Pinata) for decentralized storage of video evidence.
-- **Database:** Supabase (Off-chain metadata, driver logs, and user profiles).
-- **Observability:** OpenTelemetry distributed tracing with correlation IDs for end-to-end request tracking.
+Amounts are rounded to the nearest whole unit, with half values rounded up (round-half-up). Rounding is applied once, at the final settlement step, to avoid compounding drift.
 
-## 🧪 Local Environments (Folder-Based)
+| Raw amount | Rounded |
+| --- | --- |
+| 100.4 | 100 |
+| 100.5 | 101 |
+| 100.49 | 100 |
+| 0.5 | 1 |
 
-- `frontend/` → Next.js app environment (UI + wallet + Supabase/Pinata client integration)
-- `backend/` → Node.js/TypeScript API environment (Supabase + Pinata + integration endpoints)
-- `mobile/` → React Native Expo environment (mobile wallet, notification, and trade UX)
-- `contracts/` → Rust/Soroban smart contract environment
+Edge cases:
 
-### Frontend setup
+- Negative amounts are not expected in settlement output; if produced, they indicate a bug and must fail validation.
+- Rounding must never cause the sum of payouts to exceed the escrowed value; any residual unit is assigned to the platform fee bucket, not duplicated.
 
-1. `cd frontend`
-2. `cp .env.example .env.local`
-3. `npm install`
-4. `npm run dev`
+### 3. Fees
 
-### Backend setup
+Fee = `escrowed_value * fee_rate`, rounded per the rules above. Fees are charged on the delivered value, not on the loss.
 
-1. `cd backend`
-2. `cp .env.example .env`
-3. `cp .env.tracing.example .env.tracing` (for distributed tracing configuration)
-4. `npm install`
-5. `npm run dev`
+| Escrowed value | Fee rate | Fee |
+| --- | --- | --- |
+| 10,000 | 0.01 | 100 |
+| 10,000 | 0.025 | 250 |
+| 10,000 | 0.00 | 0 |
 
-### Mobile setup
+Edge cases:
 
-1. `cd mobile`
-2. `cp .env.example .env.local`
-3. `npm install`
-4. `npm start`
+- Fee rate outside `[0, 1]` is rejected as invalid configuration.
+- A zero fee rate is valid and produces a zero fee.
+- Fees are never charged on the loss portion of a partial delivery.
 
-### Backend API docs
+### 4. Partial delivery outcomes
 
-- Source of truth: `backend/src/docs/openapi.yaml`
-- Dev Swagger UI: `http://localhost:4000/api/docs`
-- JSON export: `http://localhost:4000/api/docs/openapi.json`
+When only part of a delivery is fulfilled, the escrow splits into delivered value, loss, and fee.
 
-The backend writes `backend/src/docs/openapi.json` from the YAML spec in non-production runs so reviewers can inspect either format.
+Example: escrowed value `10,000`, delivered `6,000`, loss `4,000`, fee rate `0.01`.
 
-### Contracts setup
+| Bucket | Calculation | Amount |
+| --- | --- | --- |
+| Delivered value | given | 6,000 |
+| Loss | given | 4,000 |
+| Fee | 6,000 * 0.01 | 60 |
+| Farmer payout | 6,000 - 60 | 5,940 |
+| Buyer refund | 4,000 | 4,000 |
 
-1. `cd contracts/amana_escrow`
-2. `cargo build`
+Edge cases:
 
-## 🔒 Required PR CI Gates
+- Delivered `0` (total loss): farmer payout `0`, fee `0`, buyer refund equals escrowed value.
+- Delivered equals escrowed value (full delivery): loss `0`, fee charged on full value, buyer refund `0`.
+- Delivered plus loss must equal escrowed value; any mismatch fails validation before settlement.
+- Failure states (invalid inputs, mismatched totals, out-of-range fee rates) must reject the settlement and leave escrow unchanged; no partial payouts are emitted.
 
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
+### 5. Failure states summary
 
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobil
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
+| Condition | Outcome |
+| --- | --- |
+| Escrowed value `0` | Rejected |
+| Loss > escrowed value | Rejected |
+| Fee rate outside `[0, 1]` | Rejected |
+| Delivered + loss != escrowed value | Rejected |
+| Negative payout | Rejected |
 
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobile/`
-- **Contracts Required Gate**: `cargo test` in `contracts/amana_escrow/`
-
-Path-aware execution is enabled to avoid unnecessary runtime. If a stack has no changed files, the gate reports a skip-note and passes.
-
-### Branch protection setup (GitHub)
-
-For the protected branch (`main`), set these required status checks:
-
-- `Frontend Required Gate`
-- `Backend Required Gate`
-- `Contracts Required Gate`
-
----
-
----
-
-## 🔄 How It Works (The Amana Flow)
-
-1. **Initiate:** The Seller lists products. The Buyer initiates a trade, depositing funds that are converted to cNGN via a Stellar Path Payment.
-2. **Lock:** The Smart Contract locks the funds and stores the agreed-upon `Loss_Ratio`.
-3. **Dispatch:** The Seller provides the driver's name, phone number, and vehicle manifest.
-4. **Verification:** - **Success:** Buyer receives goods and uploads a confirmation video. Funds release to Seller.
-   - **Dispute:** Buyer uploads a video of loss/damage with driver affirmation. A mediator reviews the evidence.
-5. **Settlement:** Based on the outcome, funds are distributed (either 100% to one party or split via the `Loss_Ratio`).
-
----
-
-## 🗺 Roadmap
-
-### Phase 1: The Vault (MVP)
-
-- [x] Develop core Soroban contract logic (`deposit`, `release`, `refund`).
-- [x] Implement basic Next.js UI for trade creation.
-
-### Phase 2: The Agreement Engine
-
-- [x] Integrate `Loss_Ratio` variables into the smart contract.
-- [x] Build the "Mediator" dashboard for dispute resolution.
-
-### Phase 3: Evidence & Logistics
-
-- [x] IPFS integration for video evidence uploads.
-- [x] Driver manifest logging and tracking interface.
-
-### Phase 4: Mainnet & Scale
-
-- [ ] Public pilot program with regional agricultural cooperatives.
-- [x] Implementation of a "Trust Score" reputation system.
-
----
-
-## 🔍 Distributed Tracing
-
-Amana includes comprehensive distributed tracing with OpenTelemetry for end-to-end request visibility and faster incident triage.
-
-### Features
-
-- **Correlation IDs**: Unique identifiers spanning frontend-backend requests
-- **Request Tracing**: Complete request lifecycle tracking
-- **Service Integration**: Automatic tracing for external services (IPFS, Stellar)
-- **Observability**: Jaeger, Zipkin, and Prometheus integration
-
-### Quick Start
-
-1. Configure tracing environment variables (see `backend/.env.tracing.example`)
-2. Start Jaeger for trace visualization: `docker run -p 16686:16686 jaegertracing/all-in-one`
-3. View traces at `http://localhost:16686`
-4. Check metrics at `http://localhost:9464/metrics`
-
-### Documentation
-
-See [DISTRIBUTED_TRACING_GUIDE.md](./DISTRIBUTED_TRACING_GUIDE.md) for detailed setup and usage instructions.
-
----
-
-## 📐 Architecture Decision Records
-
-Key architectural decisions are documented as ADRs in [`docs/adr/`](./docs/adr):
-
-- [ADR-001: Stellar Path Payment Architecture](./docs/adr/ADR-001-stellar-path-payment-architecture.md)
-- [ADR-002: Escrow Loss-Sharing Model](./docs/adr/ADR-002-escrow-loss-sharing-model.md)
-- [ADR-003: Off-chain vs. On-chain Data Partitioning](./docs/adr/ADR-003-offchain-vs-onchain-data-partitioning.md)
-- [ADR-004: Idempotency and Retry Strategy](./docs/adr/ADR-004-idempotency-and-retry-strategy.md)
-- [ADR-005: Frontend State Management](./docs/adr/ADR-005-frontend-state-management.md)
-
-## 🔐 Security & Operations
-
-- [Security Policy](./SECURITY.md) — privately report vulnerabilities through GitHub's private vulnerability reporting.
-- [Threat Model](./docs/threat-model.md) — reviewed quarterly and on trigger events; see §8 for cadence/ownership and `docs/threat-model-review-checklist.md` for the reviewer checklist.
-- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders are opened automatically by [`.github/workflows/secrets-rotation-reminder.yml`](./.github/workflows/secrets-rotation-reminder.yml).
-- [PII Encryption at Rest](./docs/pii-encryption.md) — classified PII column inventory, app-layer envelope encryption design, blind-index search, key rotation procedure, and decrypt access logging.
-- [Software Bill of Materials (SBOM)](./docs/sbom.md) — CycloneDX SBOM generated for every release artifact via [`.github/workflows/sbom.yml`](./.github/workflows/sbom.yml), attached to GitHub Releases, with a weekly vulnerability diff scan.
-- [Golden Signals Dashboard](./docs/dashboards.md) — Grafana dashboard stored as code ([`infra/grafana/`](./infra/grafana)) covering API latency/traffic/errors and DB/queue saturation, with deploy annotations wired into staging deploys.
-- [Alert Routing Policy](./docs/alert-routing-policy.md) — page-vs-ticket severity rubric, runbook linkage enforced in CI, per-alert dedup windows, and the [monthly alert review log](./docs/alert-review-log.md).
-- [Synthetic Probes Policy](./docs/synthetic-probes-policy.md) — hourly staging probe of the core escrow journey (auth → create → deposit → release), with failure alerting and a results dashboard log.
-- [Incident Response](./docs/runbooks/incident-response.md) — severity levels, incident roles, and channel/ticket conventions; see the [postmortem template](./docs/runbooks/postmortem-template.md), the [postmortem archive](./docs/postmortems/README.md), and a worked [tabletop exercise](./docs/runbooks/tabletop-exercise-escrow-drain.md).
-
-## 🤝 Contributing
-
-innov8 is an open-source project aimed at improving food security and trade efficiency. We welcome developers, designers, and agricultural experts!
-
-1. Fork the Project.
-2. Create your Feature Branch (`git checkout -b feature/NewFeature`).
-3. Commit your Changes (`git commit -m 'Add NewFeature'`).
-4. Push to the Branch (`git push origin feature/NewFeature`).
-5. Open a Pull Request.
-
-### Admin route development
-
-If you are adding or modifying admin routes, see the
-[Admin Route Contribution Guide](./docs/admin-route-contribution-guide.md)
-for architecture details, middleware requirements, testing expectations, and a
-step-by-step example.
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
-// setting up and starting out
+Rejected settlements must not leak party identifiers or amounts in error messages beyond what the caller already supplied.

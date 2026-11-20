@@ -97,6 +97,99 @@ npx jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatte
 CI runs this suite as a separate named step (`Admin auth regression suite`) so any
 regression in admin authentication causes CI to fail independently of the full test suite.
 
+## Loss-Sharing Examples Workbook
+
+Worked examples for how escrow settlement splits funds between buyer and seller when a
+trade completes fully, partially, or fails in transit. All amounts are in cNGN and use
+whole-unit arithmetic; the platform fee is a flat **1%** of the settled trade value.
+
+### Conventions
+
+- `tradeValue` — agreed price of the goods (cNGN).
+- `lossRatio` — seller's share of any transit loss, expressed as a percentage (e.g. `50` = 50/50 split, `70` = 70/30 split where the seller bears 70%).
+- `platformFee` — `floor(tradeValue * 0.01)` in cNGN, deducted from the settled amount before loss sharing.
+- Rounding is always **down** (floor) to the nearest whole cNGN so the escrow never pays out more than it holds. Any remainder stays in the escrow contract.
+
+### Example 1 — Full delivery, 50/50 loss ratio
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 100,000 cNGN |
+| platformFee (1%) | 1,000 cNGN |
+| settled amount | 99,000 cNGN |
+| loss | 0 cNGN |
+| seller payout | 99,000 cNGN |
+| buyer refund | 0 cNGN |
+
+No loss occurred, so the loss ratio is not applied. The seller receives the full settled amount.
+
+### Example 2 — Partial delivery with a 50/50 loss ratio
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 100,000 cNGN |
+| platformFee (1%) | 1,000 cNGN |
+| settled amount | 99,000 cNGN |
+| loss (spoilage in transit) | 20,000 cNGN |
+| seller bears (50%) | 10,000 cNGN |
+| buyer bears (50%) | 10,000 cNGN |
+| seller payout | 89,000 cNGN |
+| buyer refund | 10,000 cNGN |
+
+### Example 3 — Partial delivery with a 70/30 loss ratio
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 100,000 cNGN |
+| platformFee (1%) | 1,000 cNGN |
+| settled amount | 99,000 cNGN |
+| loss | 20,000 cNGN |
+| seller bears (70%) | 14,000 cNGN |
+| buyer bears (30%) | 6,000 cNGN |
+| seller payout | 85,000 cNGN |
+| buyer refund | 6,000 cNGN |
+
+### Example 4 — Rounding with an odd trade value
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 10,001 cNGN |
+| platformFee (1%, floored) | 100 cNGN |
+| settled amount | 9,901 cNGN |
+| loss | 1,001 cNGN |
+| seller bears (50%, floored) | 500 cNGN |
+| buyer bears (remainder) | 501 cNGN |
+| seller payout | 9,401 cNGN |
+| buyer refund | 501 cNGN |
+
+`10,001 * 0.01 = 100.01` floors to `100`. `1,001 * 0.5 = 500.5` floors to `500` for the
+seller; the buyer absorbs the remaining `501` so the two shares always sum to the loss.
+
+### Example 5 — Total loss in transit
+
+| Field | Value |
+| --- | --- |
+| tradeValue | 50,000 cNGN |
+| platformFee (1%) | 500 cNGN |
+| settled amount | 49,500 cNGN |
+| loss | 50,000 cNGN |
+| seller payout | 0 cNGN |
+| buyer refund | 49,500 cNGN |
+
+When the loss equals or exceeds the trade value, the seller receives nothing and the
+buyer is refunded the full settled amount. The platform fee is still retained.
+
+### Edge cases and failure states
+
+- **Loss exceeds trade value**: clamp the loss to `tradeValue`; the buyer refund never exceeds the settled amount.
+- **Zero or negative trade value**: reject the settlement request with a validation error; no funds move.
+- **Loss ratio outside 0–100**: reject with a validation error rather than silently clamping.
+- **Fee rounding**: always floor the fee so the escrow cannot overdraw; the remainder stays in escrow.
+- **Disputed PoD**: settlement is blocked until the dispute is resolved; no partial payouts are issued.
+
+These examples contain no wallet addresses, personal data, or secrets and are safe to
+share in issues and pull requests.
+
 ## Notes
 
 - `prisma/` contains schema and seed logic for the backend database.
