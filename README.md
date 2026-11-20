@@ -90,6 +90,27 @@ Run an OTLP-compatible collector (for example the Jaeger all-in-one container) a
 - **Mobile cannot reach backend**: use the host LAN IP and confirm the firewall allows the API port.
 - **Tracing warnings**: verify the collector is running at `OTEL_EXPORTER_OTLP_ENDPOINT`; absence of tracing does not affect functionality.
 
+## Architecture ownership map
+
+Each area of the platform has a named owner role and an escalation path. The canonical, up-to-date map lives in [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md); this section is a summary so the map is discoverable from the main workflow.
+
+| Area | Primary owner role | Backup | Escalation |
+| --- | --- | --- | --- |
+| Backend (`apps/api`) | Backend lead | Backend on-call | Security lead, then platform on-call |
+| Frontend (`apps/web`) | Frontend lead | Frontend on-call | Security lead, then platform on-call |
+| Mobile (`apps/mobile`) | Mobile lead | Mobile on-call | Security lead, then platform on-call |
+| Smart contracts | Contracts lead | Contracts reviewer | Security lead, then platform on-call |
+
+Escalation tiers:
+
+1. **Primary owner** — first responder for changes, reviews, and incidents in the area.
+2. **Backup / secondary** — takes over when the primary is unavailable.
+3. **Security / on-call** — escalate security-sensitive issues (key handling, authorization, contract upgrades) to the security lead, and production incidents to the platform on-call.
+
+Contact owners through the team's existing channels (issue tracker, team chat, and on-call rotation). Do not embed personal contact details, secrets, or PII in this repository; keep rosters in the private team directory and reference roles here.
+
+To update the map, edit `docs/OWNERSHIP.md` and keep this summary table in sync. Ownership changes should be reviewed like any other documentation change.
+
 ## Mobile network state action guards
 
 The mobile app must not silently fail or queue unsupported work while the device is offline.
