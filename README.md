@@ -1,207 +1,169 @@
-# 🌾 innov8: Trust as a Service for Agricultural Products
+# innov8
 
-![Stellar](https://img.shields.io/badge/Network-Stellar-black?style=for-the-badge&logo=stellar)
-![Soroban](<https://img.shields.io/badge/Contracts-Soroban%20(Rust)-orange?style=for-the-badge>)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+Agricultural escrow platform.
 
-**innov8** is a decentralized escrow protocol designed to secure agricultural trade across different regions. By leveraging **Soroban Smart Contracts**, Amana eliminates the "Trust Gap" between buyers and sellers, ensuring fair trade even when parties are hundreds of miles apart.
+## Local full-stack development guide
 
-This is the main repository containing the smart contracts and orchestration logic. Backend, frontend, and mobile applications are maintained in this monorepo for simpler development and unified deployment.
+This guide provides one reproducible setup for the frontend, backend, mobile app, contracts, Supabase, and tracing. Run the steps in order from a fresh clone.
 
----
+### Prerequisites
 
-## 🚀 The Mission
+- Node.js 20 LTS and npm 10
+- Docker Desktop (for Supabase local stack)
+- Rust toolchain with `wasm32-unknown-unknown` target (contracts)
+- Expo CLI (`npx expo`) for the mobile app
 
-To provide a programmable safety net for regional commodity trading. Amana ensures that the risk of "sending first" is eliminated, replaced by a secure, neutral vault that only releases funds when delivery is verified.
+### 1. Environment configuration
 
-## 🛠 Features
+Copy the example env files and fill in local-only values. Never commit real secrets.
 
-- **Smart Escrow:** Secure funds holding using cNGN/stablecoins on the Stellar network.
-- **Dynamic Loss Sharing:** Negotiable risk-sharing ratios (e.g., 50/50, 70/30) hardcoded into every trade to handle transit accidents or theft.
-- **Proof-of-Delivery (PoD):** An optional video-based verification protocol involving the buyer and the driver to confirm the state of goods. Video evidence can be submitted and stored on IPFS for dispute resolution.
-- **Volatility Protection:** Utilizes Stellar Path Payments to allow users to pay in local currency (NGN) while locking value in cNGN.
-- **Automated Settlement:** A flat 1% platform fee is automatically deducted upon successful trade completion.
+```bash
+cp .env.example .env
+cp apps/web/.env.example apps/web/.env
+cp apps/api/.env.example apps/api/.env
+cp apps/mobile/.env.example apps/mobile/.env
+```
 
-## 🏗 Technical Stack
+Key local defaults (override in your `.env` files):
 
-- **Frontend:** [Next.js](https://nextjs.org/) (App Router)
-- **Smart Contracts:** [Soroban](https://soroban.stellar.org/) (Rust)
-- **Blockchain:** [Stellar Network](https://www.stellar.org/)
-- **Wallet Connection:** [Freighter](https://www.freighter.app/) / [Albedo](https://albedo.link/)
-- **Storage:** IPFS (via Pinata) for decentralized storage of video evidence.
-- **Database:** Supabase (Off-chain metadata, driver logs, and user profiles).
-- **Observability:** OpenTelemetry distributed tracing with correlation IDs for end-to-end request tracking.
+| Variable | Purpose | Local default |
+| --- | --- | --- |
+| `DATABASE_URL` | Backend Postgres connection | `postgresql://postgres:postgres@localhost:54322/postgres` |
+| `SUPABASE_URL` | Supabase API endpoint | `http://localhost:54321` |
+| `SUPABASE_ANON_KEY` | Public anon key (local only) | printed by `supabase start` |
+| `API_PORT` | Backend HTTP port | `3001` |
+| `WEB_PORT` | Frontend dev server port | `3000` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Tracing collector | `http://localhost:4318` |
 
-## 🧪 Local Environments (Folder-Based)
+### 2. Supabase
 
-- `frontend/` → Next.js app environment (UI + wallet + Supabase/Pinata client integration)
-- `backend/` → Node.js/TypeScript API environment (Supabase + Pinata + integration endpoints)
-- `mobile/` → React Native Expo environment (mobile wallet, notification, and trade UX)
-- `contracts/` → Rust/Soroban smart contract environment
+```bash
+supabase start
+supabase db reset   # applies migrations and seed data
+```
 
-### Frontend setup
+`supabase start` prints the local anon/service keys; copy them into your `.env` files. Do not reuse production keys locally.
 
-1. `cd frontend`
-2. `cp .env.example .env.local`
-3. `npm install`
-4. `npm run dev`
+### 3. Backend
 
-### Backend setup
+```bash
+npm install
+npm run --workspace apps/api dev
+```
 
-1. `cd backend`
-2. `cp .env.example .env`
-3. `cp .env.tracing.example .env.tracing` (for distributed tracing configuration)
-4. `npm install`
-5. `npm run dev`
+The API listens on `API_PORT` (default `3001`) and exposes a health check at `GET /health`.
 
-### Mobile setup
+### 4. Frontend
 
-1. `cd mobile`
-2. `cp .env.example .env.local`
-3. `npm install`
-4. `npm start`
+```bash
+npm run --workspace apps/web dev
+```
 
-### Backend API docs
+The web app runs on `WEB_PORT` (default `3000`) and reads `SUPABASE_URL`/`SUPABASE_ANON_KEY` from `apps/web/.env`.
 
-- Source of truth: `backend/src/docs/openapi.yaml`
-- Dev Swagger UI: `http://localhost:4000/api/docs`
-- JSON export: `http://localhost:4000/api/docs/openapi.json`
+### 5. Mobile
 
-The backend writes `backend/src/docs/openapi.json` from the YAML spec in non-production runs so reviewers can inspect either format.
+```bash
+npm run --workspace apps/mobile start
+```
 
-### Contracts setup
+Point the mobile app at your machine's LAN IP (not `localhost`) so a physical device can reach the backend and Supabase.
 
-1. `cd contracts/amana_escrow`
-2. `cargo build`
+### 6. Contracts
 
-## 🔒 Required PR CI Gates
+```bash
+rustup target add wasm32-unknown-unknown
+cargo build --release --target wasm32-unknown-unknown
+cargo test
+```
 
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
+Deploy to the local network only after tests pass; never deploy with production keys from a local shell.
 
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobil
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
+### 7. Tracing
 
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobile/`
-- **Contracts Required Gate**: `cargo test` in `contracts/amana_escrow/`
+Run an OTLP-compatible collector (for example the Jaeger all-in-one container) and set `OTEL_EXPORTER_OTLP_ENDPOINT` to its HTTP endpoint. If the collector is unreachable, services log a warning and continue serving traffic; tracing is best-effort and must never block requests.
 
-Path-aware execution is enabled to avoid unnecessary runtime. If a stack has no changed files, the gate reports a skip-note and passes.
+### Troubleshooting
 
-### Branch protection setup (GitHub)
+- **Port already in use**: change `API_PORT`/`WEB_PORT` in your `.env` and restart the affected service.
+- **Supabase keys missing**: re-run `supabase status` to print local keys.
+- **Mobile cannot reach backend**: use the host LAN IP and confirm the firewall allows the API port.
+- **Tracing warnings**: verify the collector is running at `OTEL_EXPORTER_OTLP_ENDPOINT`; absence of tracing does not affect functionality.
 
-For the protected branch (`main`), set these required status checks:
+## Architecture ownership map
 
-- `Frontend Required Gate`
-- `Backend Required Gate`
-- `Contracts Required Gate`
+Each area of the platform has a named owner role and an escalation path. The canonical, up-to-date map lives in [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md); this section is a summary so the map is discoverable from the main workflow.
 
----
+| Area | Primary owner role | Backup | Escalation |
+| --- | --- | --- | --- |
+| Backend (`apps/api`) | Backend lead | Backend on-call | Security lead, then platform on-call |
+| Frontend (`apps/web`) | Frontend lead | Frontend on-call | Security lead, then platform on-call |
+| Mobile (`apps/mobile`) | Mobile lead | Mobile on-call | Security lead, then platform on-call |
+| Smart contracts | Contracts lead | Contracts reviewer | Security lead, then platform on-call |
 
----
+Escalation tiers:
 
-## 🔄 How It Works (The Amana Flow)
+1. **Primary owner** — first responder for changes, reviews, and incidents in the area.
+2. **Backup / secondary** — takes over when the primary is unavailable.
+3. **Security / on-call** — escalate security-sensitive issues (key handling, authorization, contract upgrades) to the security lead, and production incidents to the platform on-call.
 
-1. **Initiate:** The Seller lists products. The Buyer initiates a trade, depositing funds that are converted to cNGN via a Stellar Path Payment.
-2. **Lock:** The Smart Contract locks the funds and stores the agreed-upon `Loss_Ratio`.
-3. **Dispatch:** The Seller provides the driver's name, phone number, and vehicle manifest.
-4. **Verification:** - **Success:** Buyer receives goods and uploads a confirmation video. Funds release to Seller.
-   - **Dispute:** Buyer uploads a video of loss/damage with driver affirmation. A mediator reviews the evidence.
-5. **Settlement:** Based on the outcome, funds are distributed (either 100% to one party or split via the `Loss_Ratio`).
+Contact owners through the team's existing channels (issue tracker, team chat, and on-call rotation). Do not embed personal contact details, secrets, or PII in this repository; keep rosters in the private team directory and reference roles here.
 
----
+To update the map, edit `docs/OWNERSHIP.md` and keep this summary table in sync. Ownership changes should be reviewed like any other documentation change.
 
-## 🗺 Roadmap
+## Release notes generation guide
 
-### Phase 1: The Vault (MVP)
+Release notes are generated automatically from **reviewed and merged** pull requests. This section defines the changelog categories, how PR labels map to them, and which PRs are included or excluded so contributors can predict what ships in each release.
 
-- [x] Develop core Soroban contract logic (`deposit`, `release`, `refund`).
-- [x] Implement basic Next.js UI for trade creation.
+### Changelog categories
 
-### Phase 2: The Agreement Engine
+Every release note entry is grouped under one of the following categories, in this order:
 
-- [x] Integrate `Loss_Ratio` variables into the smart contract.
-- [x] Build the "Mediator" dashboard for dispute resolution.
+| Category | Meaning | Typical PR label |
+| --- | --- | --- |
+| **Added** | New features or capabilities | `feature`, `enhancement` |
+| **Changed** | Changes to existing behavior | `change`, `refactor` |
+| **Fixed** | Bug fixes | `bug`, `fix` |
+| **Security** | Security-relevant fixes or hardening | `security` |
+| **Deprecated** | Features slated for removal | `deprecation` |
+| **Removed** | Features or APIs removed | `removal` |
 
-### Phase 3: Evidence & Logistics
+A PR is placed in the category matching its label. If a PR carries multiple category labels, it appears under each matching category. PRs without a recognized category label are grouped under **Changed** so nothing merged is silently dropped.
 
-- [x] IPFS integration for video evidence uploads.
-- [x] Driver manifest logging and tracking interface.
+### Inclusion and exclusion rules
 
-### Phase 4: Mainnet & Scale
+Included:
 
-- [ ] Public pilot program with regional agricultural cooperatives.
-- [x] Implementation of a "Trust Score" reputation system.
+- Pull requests that are **merged** into the release branch and have passed review.
+- PRs with a recognized category label (see table above).
 
----
+Excluded:
 
-## 🔍 Distributed Tracing
+- Open, draft, or closed-but-unmerged PRs.
+- PRs labeled `skip-changelog` (for example, internal chores or CI-only changes).
+- Automated dependency bumps labeled `dependencies` unless they also carry a category label.
 
-Amana includes comprehensive distributed tracing with OpenTelemetry for end-to-end request visibility and faster incident triage.
+### Automation workflow
 
-### Features
+1. Contributors label their PR with exactly one category label from the table above (plus `skip-changelog` when the change should not appear in release notes).
+2. On merge to the release branch, the release automation collects merged PRs since the previous release tag.
+3. Each PR is mapped to its category and rendered as a bullet with the PR title and number.
+4. The generated notes are attached to the release draft for maintainer review before publishing.
 
-- **Correlation IDs**: Unique identifiers spanning frontend-backend requests
-- **Request Tracing**: Complete request lifecycle tracking
-- **Service Integration**: Automatic tracing for external services (IPFS, Stellar)
-- **Observability**: Jaeger, Zipkin, and Prometheus integration
+### Configuration
 
-### Quick Start
+- **Category labels**: the label names in the table above are the source of truth; renaming a label requires updating this guide and the release automation config together.
+- **Exclusion label**: `skip-changelog` removes a merged PR from generated notes.
+- **Release branch**: notes are generated from merges into the release branch; PRs merged only to feature branches are not included until they reach the release branch.
 
-1. Configure tracing environment variables (see `backend/.env.tracing.example`)
-2. Start Jaeger for trace visualization: `docker run -p 16686:16686 jaegertracing/all-in-one`
-3. View traces at `http://localhost:16686`
-4. Check metrics at `http://localhost:9464/metrics`
+Keep this guide in sync with the release automation configuration whenever labels or inclusion rules change.
 
-### Documentation
+## Mobile network state action guards
 
-See [DISTRIBUTED_TRACING_GUIDE.md](./DISTRIBUTED_TRACING_GUIDE.md) for detailed setup and usage instructions.
+The mobile app must not silently fail or queue unsupported work while the device is offline.
 
----
+- Network-dependent actions (submitting escrow transactions, syncing, uploading evidence) are **disabled** while offline and surface an inline explanation to the user.
+- Only actions explicitly marked as offline-queueable are queued; all other actions are blocked with a clear message until connectivity returns.
+- When connectivity is restored, queued work is flushed and any failures are reported without leaking secrets or PII.
 
-## 📐 Architecture Decision Records
-
-Key architectural decisions are documented as ADRs in [`docs/adr/`](./docs/adr):
-
-- [ADR-001: Stellar Path Payment Architecture](./docs/adr/ADR-001-stellar-path-payment-architecture.md)
-- [ADR-002: Escrow Loss-Sharing Model](./docs/adr/ADR-002-escrow-loss-sharing-model.md)
-- [ADR-003: Off-chain vs. On-chain Data Partitioning](./docs/adr/ADR-003-offchain-vs-onchain-data-partitioning.md)
-- [ADR-004: Idempotency and Retry Strategy](./docs/adr/ADR-004-idempotency-and-retry-strategy.md)
-- [ADR-005: Frontend State Management](./docs/adr/ADR-005-frontend-state-management.md)
-
-## 🔐 Security & Operations
-
-- [Security Policy](./SECURITY.md) — privately report vulnerabilities through GitHub's private vulnerability reporting.
-- [Threat Model](./docs/threat-model.md) — reviewed quarterly and on trigger events; see §8 for cadence/ownership and `docs/threat-model-review-checklist.md` for the reviewer checklist.
-- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders are opened automatically by [`.github/workflows/secrets-rotation-reminder.yml`](./.github/workflows/secrets-rotation-reminder.yml).
-- [PII Encryption at Rest](./docs/pii-encryption.md) — classified PII column inventory, app-layer envelope encryption design, blind-index search, key rotation procedure, and decrypt access logging.
-- [Software Bill of Materials (SBOM)](./docs/sbom.md) — CycloneDX SBOM generated for every release artifact via [`.github/workflows/sbom.yml`](./.github/workflows/sbom.yml), attached to GitHub Releases, with a weekly vulnerability diff scan.
-- [Golden Signals Dashboard](./docs/dashboards.md) — Grafana dashboard stored as code ([`infra/grafana/`](./infra/grafana)) covering API latency/traffic/errors and DB/queue saturation, with deploy annotations wired into staging deploys.
-- [Alert Routing Policy](./docs/alert-routing-policy.md) — page-vs-ticket severity rubric, runbook linkage enforced in CI, per-alert dedup windows, and the [monthly alert review log](./docs/alert-review-log.md).
-- [Synthetic Probes Policy](./docs/synthetic-probes-policy.md) — hourly staging probe of the core escrow journey (auth → create → deposit → release), with failure alerting and a results dashboard log.
-- [Incident Response](./docs/runbooks/incident-response.md) — severity levels, incident roles, and channel/ticket conventions; see the [postmortem template](./docs/runbooks/postmortem-template.md), the [postmortem archive](./docs/postmortems/README.md), and a worked [tabletop exercise](./docs/runbooks/tabletop-exercise-escrow-drain.md).
-
-## 🤝 Contributing
-
-innov8 is an open-source project aimed at improving food security and trade efficiency. We welcome developers, designers, and agricultural experts!
-
-1. Fork the Project.
-2. Create your Feature Branch (`git checkout -b feature/NewFeature`).
-3. Commit your Changes (`git commit -m 'Add NewFeature'`).
-4. Push to the Branch (`git push origin feature/NewFeature`).
-5. Open a Pull Request.
-
-### Admin route development
-
-If you are adding or modifying admin routes, see the
-[Admin Route Contribution Guide](./docs/admin-route-contribution-guide.md)
-for architecture details, middleware requirements, testing expectations, and a
-step-by-step example.
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
-// setting up and starting out
+See the mobile stack documentation for the list of supported offline-queueable actions.

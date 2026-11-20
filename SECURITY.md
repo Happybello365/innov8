@@ -52,3 +52,44 @@ time for investigation and remediation.
 The latest version on the default branch is supported for security reports.
 Reports affecting released versions are welcome; include the affected version
 or commit so maintainers can assess impact.
+
+## Architecture Ownership Map
+
+Each area of the codebase has a named owner role and an escalation path. This
+map is the source of truth for who to contact about a component and how to
+escalate when the primary owner is unavailable. It is documentation only; it
+does not grant access or change any runtime behavior.
+
+### Areas and Owners
+
+| Area | Path | Primary owner role | Backup owner role |
+| --- | --- | --- | --- |
+| Smart contracts | `contracts/` | Contracts lead | Backend lead |
+| Backend services and APIs | `backend/` | Backend lead | Contracts lead |
+| Web application | `frontend/` | Frontend lead | Backend lead |
+| Mobile application | `mobile/` | Mobile lead | Frontend lead |
+| Infrastructure and CI | `.github/`, deployment config | Platform/DevOps lead | Backend lead |
+
+Owners are identified by role, not by personal contact details. To reach a role,
+use the repository's GitHub team mentions or open a discussion and tag the
+relevant team; do not publish personal email addresses, phone numbers, or other
+PII in this file.
+
+### Escalation Path
+
+1. **Primary owner** — the role listed for the affected area. Contact first for
+   design questions, reviews, and routine incidents.
+2. **Backup owner** — the role listed in the backup column. Escalate here when
+   the primary owner is unavailable or does not respond within the response
+   targets above.
+3. **Security / on-call** — for suspected vulnerabilities, active incidents, or
+   anything involving secrets, funds, or user data, escalate immediately to the
+   security process in the sections above and to the on-call rotation. Do not
+   wait for the primary owner before reporting a security issue.
+
+### Updating This Map
+
+When ownership changes, update the table above in the same pull request that
+changes the area's maintainers. Keep entries limited to role names and paths so
+no secrets or PII are committed. If an area is added or removed, add or remove
+its row here so the map stays discoverable from this security policy.
