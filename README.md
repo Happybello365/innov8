@@ -111,6 +111,53 @@ Contact owners through the team's existing channels (issue tracker, team chat, a
 
 To update the map, edit `docs/OWNERSHIP.md` and keep this summary table in sync. Ownership changes should be reviewed like any other documentation change.
 
+## Release notes generation guide
+
+Release notes are generated automatically from **reviewed and merged** pull requests. This section defines the changelog categories, how PR labels map to them, and which PRs are included or excluded so contributors can predict what ships in each release.
+
+### Changelog categories
+
+Every release note entry is grouped under one of the following categories, in this order:
+
+| Category | Meaning | Typical PR label |
+| --- | --- | --- |
+| **Added** | New features or capabilities | `feature`, `enhancement` |
+| **Changed** | Changes to existing behavior | `change`, `refactor` |
+| **Fixed** | Bug fixes | `bug`, `fix` |
+| **Security** | Security-relevant fixes or hardening | `security` |
+| **Deprecated** | Features slated for removal | `deprecation` |
+| **Removed** | Features or APIs removed | `removal` |
+
+A PR is placed in the category matching its label. If a PR carries multiple category labels, it appears under each matching category. PRs without a recognized category label are grouped under **Changed** so nothing merged is silently dropped.
+
+### Inclusion and exclusion rules
+
+Included:
+
+- Pull requests that are **merged** into the release branch and have passed review.
+- PRs with a recognized category label (see table above).
+
+Excluded:
+
+- Open, draft, or closed-but-unmerged PRs.
+- PRs labeled `skip-changelog` (for example, internal chores or CI-only changes).
+- Automated dependency bumps labeled `dependencies` unless they also carry a category label.
+
+### Automation workflow
+
+1. Contributors label their PR with exactly one category label from the table above (plus `skip-changelog` when the change should not appear in release notes).
+2. On merge to the release branch, the release automation collects merged PRs since the previous release tag.
+3. Each PR is mapped to its category and rendered as a bullet with the PR title and number.
+4. The generated notes are attached to the release draft for maintainer review before publishing.
+
+### Configuration
+
+- **Category labels**: the label names in the table above are the source of truth; renaming a label requires updating this guide and the release automation config together.
+- **Exclusion label**: `skip-changelog` removes a merged PR from generated notes.
+- **Release branch**: notes are generated from merges into the release branch; PRs merged only to feature branches are not included until they reach the release branch.
+
+Keep this guide in sync with the release automation configuration whenever labels or inclusion rules change.
+
 ## Mobile network state action guards
 
 The mobile app must not silently fail or queue unsupported work while the device is offline.
