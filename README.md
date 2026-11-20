@@ -80,11 +80,6 @@ Amana enforces stack-level CI gates on pull requests through `.github/workflows/
 
 - **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
 - **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobil
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
-
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
 - **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobile/`
 - **Contracts Required Gate**: `cargo test` in `contracts/amana_escrow/`
 
@@ -175,33 +170,36 @@ Key architectural decisions are documented as ADRs in [`docs/adr/`](./docs/adr):
 
 - [Security Policy](./SECURITY.md) — privately report vulnerabilities through GitHub's private vulnerability reporting.
 - [Threat Model](./docs/threat-model.md) — reviewed quarterly and on trigger events; see §8 for cadence/ownership and `docs/threat-model-review-checklist.md` for the reviewer checklist.
-- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders are opened automatically by [`.github/workflows/secrets-rotation-reminder.yml`](./.github/workflows/secrets-rotation-reminder.yml).
-- [PII Encryption at Rest](./docs/pii-encryption.md) — classified PII column inventory, app-layer envelope encryption design, blind-index search, key rotation procedure, and decrypt access logging.
-- [Software Bill of Materials (SBOM)](./docs/sbom.md) — CycloneDX SBOM generated for every release artifact via [`.github/workflows/sbom.yml`](./.github/workflows/sbom.yml), attached to GitHub Releases, with a weekly vulnerability diff scan.
-- [Golden Signals Dashboard](./docs/dashboards.md) — Grafana dashboard stored as code ([`infra/grafana/`](./infra/grafana)) covering API latency/traffic/errors and DB/queue saturation, with deploy annotations wired into staging deploys.
-- [Alert Routing Policy](./docs/alert-routing-policy.md) — page-vs-ticket severity rubric, runbook linkage enforced in CI, per-alert dedup windows, and the [monthly alert review log](./docs/alert-review-log.md).
-- [Synthetic Probes Policy](./docs/synthetic-probes-policy.md) — hourly staging probe of the core escrow journey (auth → create → deposit → release), with failure alerting and a results dashboard log.
-- [Incident Response](./docs/runbooks/incident-response.md) — severity levels, incident roles, and channel/ticket conventions; see the [postmortem template](./docs/runbooks/postmortem-template.md), the [postmortem archive](./docs/postmortems/README.md), and a worked [tabletop exercise](./docs/runbooks/tabletop-exercise-escrow-drain.md).
+- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders
 
-## 🤝 Contributing
+### Security Disclosure Triage SLA
 
-innov8 is an open-source project aimed at improving food security and trade efficiency. We welcome developers, designers, and agricultural experts!
+Vulnerability reports are handled under the timelines below. All times are measured from the moment a report is received through GitHub's private vulnerability reporting channel described in [SECURITY.md](./SECURITY.md). Reports are triaged by the security maintainers on rotation; the reporter is kept informed at each stage.
 
-1. Fork the Project.
-2. Create your Feature Branch (`git checkout -b feature/NewFeature`).
-3. Commit your Changes (`git commit -m 'Add NewFeature'`).
-4. Push to the Branch (`git push origin feature/NewFeature`).
-5. Open a Pull Request.
+#### Severity tiers and SLA targets
 
-### Admin route development
+| Tier | Definition (examples) | Acknowledgement | Initial response / triage | Remediation target | Public disclosure |
+| --- | --- | --- | --- | --- | --- |
+| **Critical** | Loss of escrowed funds, contract authorization bypass, private key or secret exposure | ≤ 24 hours | ≤ 48 hours | ≤ 7 days | Coordinated, ≤ 7 days after fix ships |
+| **High** | Privilege escalation, replay of settlement/webhook events, PII exposure | ≤ 48 hours | ≤ 3 business days | ≤ 14 days | Coordinated, ≤ 14 days after fix ships |
+| **Medium** | Denial of service, information disclosure without PII, misconfiguration | ≤ 3 business days | ≤ 5 business days | ≤ 30 days | Coordinated, ≤ 30 days after fix ships |
+| **Low** | Hardening, defense-in-depth, documentation gaps | ≤ 5 business days | ≤ 10 business days | Next scheduled release | Coordinated with the reporter |
 
-If you are adding or modifying admin routes, see the
-[Admin Route Contribution Guide](./docs/admin-route-contribution-guide.md)
-for architecture details, middleware requirements, testing expectations, and a
-step-by-step example.
+- **Acknowledgement** confirms receipt and assigns a tracking ID; it does not imply a confirmed severity.
+- **Initial response / triage** includes a severity assessment, affected components, and a remediation plan.
+- **Remediation target** is the goal for a fix merged to `main`; complex fixes may be re-scoped with the reporter and documented in the advisory.
+- **Public disclosure** is coordinated with the reporter and published as a GitHub Security Advisory once a fix is available. Reporters may request earlier disclosure; we will not publish before a fix or mitigation is available unless the reporter and maintainers agree.
 
-## 📄 License
+#### Edge cases and failure states
 
-Distributed under the MIT License. See `LICENSE` for more information.
+- **Disputed severity:** If the reporter and maintainers disagree on severity, the higher tier's acknowledgement and response targets apply until consensus is reached. The rationale is recorded in the advisory.
+- **Incomplete reports:** Reports missing reproduction steps or affected versions are acknowledged within the tier target and the reporter is asked for the missing details. The triage clock pauses while awaiting the reporter; if no response is received within 14 days, the report is closed as `needs-info` and may be reopened.
+- **Third-party dependencies:** Issues in upstream dependencies (Stellar/Soroban, Next.js, Supabase, Pinata, etc.) are triaged by us, then reported upstream. Our remediation target covers applying the upstream fix or a documented mitigation; disclosure follows the upstream advisory timeline.
+- **Actively exploited issues:** Any report indicating active exploitation is escalated to Critical regardless of initial tier, and mitigation is prioritized over the standard remediation target.
+- **No PII or secrets in reports:** Do not include private keys, credentials, or personal data in reports or advisories. Redact sensitive values and share them only through the private reporting channel.
 
-// setting up and starting out
+#### Tracking and verification
+
+- Each report is tracked as a private security advisory with the assigned tier and due dates.
+- SLA adherence is reviewed at each security maintainer rotation handoff; breaches are recorded with a root-cause note.
+- Fixes ship with regression tests covering the reported failure path before the advisory is published.
