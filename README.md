@@ -80,11 +80,6 @@ Amana enforces stack-level CI gates on pull requests through `.github/workflows/
 
 - **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
 - **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobil
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
-
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
 - **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobile/`
 - **Contracts Required Gate**: `cargo test` in `contracts/amana_escrow/`
 
@@ -137,6 +132,74 @@ For the protected branch (`main`), set these required status checks:
 
 ---
 
+## 🤝 Pilot Cooperative Onboarding Guide
+
+This guide walks a regional agricultural cooperative through joining the innov8 pilot program. It covers eligibility, environment setup, wallet setup, funding, support, and graduation. It is documentation only and does not change application, contract, or configuration behavior.
+
+### 1. Eligibility
+
+A cooperative is eligible for the pilot when it meets all of the following:
+
+- Registered cooperative or farmer group with an active membership roster.
+- At least one designated pilot coordinator who can operate the frontend and mobile apps.
+- Buyers and sellers who can complete trades in cNGN/stablecoins on Stellar.
+- Agreement to the platform's 1% settlement fee and the negotiable `Loss_Ratio` model.
+- A named point of contact for support and dispute escalation.
+
+Coordinators should confirm eligibility with the innov8 team before provisioning wallets or funding accounts.
+
+### 2. Environment
+
+Pilot participants use the standard stack described above. Recommended setup:
+
+- **Frontend:** `frontend/` running against the pilot backend endpoint.
+- **Mobile:** `mobile/` for field coordinators and drivers.
+- **Backend:** managed by the innov8 team; cooperatives do not run their own backend in the pilot.
+- **Contracts:** deployed by the innov8 team on the pilot network; cooperatives do not deploy contracts.
+
+Copy the relevant `.env.example` files as described in the setup sections above. Never commit `.env` files, seed phrases, or private keys. Report suspected secret exposure per [SECURITY.md](./SECURITY.md).
+
+### 3. Wallet Setup
+
+1. Install [Freighter](https://www.freighter.app/) or use [Albedo](https://albedo.link/).
+2. Create a dedicated wallet per cooperative entity (not a personal wallet).
+3. Back up the recovery phrase offline and store it in a secure, access-controlled location.
+4. Connect the wallet to the pilot frontend and confirm the public address is displayed correctly.
+5. Register the wallet address with the innov8 pilot coordinator so it can be allowlisted for the pilot.
+
+Do not share recovery phrases with anyone, including innov8 staff. Support will never ask for a recovery phrase or private key.
+
+### 4. Funding
+
+1. The innov8 team funds the cooperative's pilot wallet with test cNGN/stablecoins on the pilot network.
+2. Cooperatives confirm the balance in the frontend before creating the first trade.
+3. Trades lock funds in escrow; the 1% platform fee is deducted automatically on successful settlement.
+4. If a trade is disputed, funds are distributed per the agreed `Loss_Ratio` after mediator review.
+
+Pilot funds are for testing only and carry no real-world value. Do not send mainnet assets to pilot wallets.
+
+### 5. Support
+
+- **Security issues:** report privately via [SECURITY.md](./SECURITY.md); do not open public issues for vulnerabilities.
+- **Operational issues:** contact the assigned innov8 pilot coordinator.
+- **Disputes:** follow the mediator flow described in "How It Works" above; evidence is stored on IPFS.
+- **Incidents:** reference the [Threat Model](./docs/threat-model.md) and [Secrets Policy & Rotation](./docs/secrets-policy.md) where relevant.
+
+When reporting an issue, include the trade ID, timestamps, and correlation IDs from the tracing setup — never include recovery phrases, private keys, or personal data.
+
+### 6. Graduation
+
+A cooperative graduates from the pilot when it has:
+
+- Completed a minimum number of successful trades agreed with the innov8 team.
+- Resolved any disputes through the mediator flow without unresolved escalations.
+- Maintained secure wallet practices with no reported secret exposure.
+- Confirmed readiness to move to mainnet with the innov8 team.
+
+Graduation is confirmed in writing by the innov8 team. After graduation, the cooperative operates on mainnet with real cNGN/stablecoins and remains subject to the same security and support policies.
+
+---
+
 ## 🔍 Distributed Tracing
 
 Amana includes comprehensive distributed tracing with OpenTelemetry for end-to-end request visibility and faster incident triage.
@@ -175,33 +238,4 @@ Key architectural decisions are documented as ADRs in [`docs/adr/`](./docs/adr):
 
 - [Security Policy](./SECURITY.md) — privately report vulnerabilities through GitHub's private vulnerability reporting.
 - [Threat Model](./docs/threat-model.md) — reviewed quarterly and on trigger events; see §8 for cadence/ownership and `docs/threat-model-review-checklist.md` for the reviewer checklist.
-- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders are opened automatically by [`.github/workflows/secrets-rotation-reminder.yml`](./.github/workflows/secrets-rotation-reminder.yml).
-- [PII Encryption at Rest](./docs/pii-encryption.md) — classified PII column inventory, app-layer envelope encryption design, blind-index search, key rotation procedure, and decrypt access logging.
-- [Software Bill of Materials (SBOM)](./docs/sbom.md) — CycloneDX SBOM generated for every release artifact via [`.github/workflows/sbom.yml`](./.github/workflows/sbom.yml), attached to GitHub Releases, with a weekly vulnerability diff scan.
-- [Golden Signals Dashboard](./docs/dashboards.md) — Grafana dashboard stored as code ([`infra/grafana/`](./infra/grafana)) covering API latency/traffic/errors and DB/queue saturation, with deploy annotations wired into staging deploys.
-- [Alert Routing Policy](./docs/alert-routing-policy.md) — page-vs-ticket severity rubric, runbook linkage enforced in CI, per-alert dedup windows, and the [monthly alert review log](./docs/alert-review-log.md).
-- [Synthetic Probes Policy](./docs/synthetic-probes-policy.md) — hourly staging probe of the core escrow journey (auth → create → deposit → release), with failure alerting and a results dashboard log.
-- [Incident Response](./docs/runbooks/incident-response.md) — severity levels, incident roles, and channel/ticket conventions; see the [postmortem template](./docs/runbooks/postmortem-template.md), the [postmortem archive](./docs/postmortems/README.md), and a worked [tabletop exercise](./docs/runbooks/tabletop-exercise-escrow-drain.md).
-
-## 🤝 Contributing
-
-innov8 is an open-source project aimed at improving food security and trade efficiency. We welcome developers, designers, and agricultural experts!
-
-1. Fork the Project.
-2. Create your Feature Branch (`git checkout -b feature/NewFeature`).
-3. Commit your Changes (`git commit -m 'Add NewFeature'`).
-4. Push to the Branch (`git push origin feature/NewFeature`).
-5. Open a Pull Request.
-
-### Admin route development
-
-If you are adding or modifying admin routes, see the
-[Admin Route Contribution Guide](./docs/admin-route-contribution-guide.md)
-for architecture details, middleware requirements, testing expectations, and a
-step-by-step example.
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
-// setting up and starting out
+- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders

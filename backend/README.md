@@ -97,6 +97,76 @@ npx jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatte
 CI runs this suite as a separate named step (`Admin auth regression suite`) so any
 regression in admin authentication causes CI to fail independently of the full test suite.
 
+## Pilot Cooperative Onboarding Guide
+
+This guide walks a pilot cooperative through onboarding onto the Amana escrow backend.
+It is documentation only and does not change application behavior. Never commit real
+secrets, private keys, or member PII to this repository or to shared channels.
+
+### 1. Eligibility
+
+A cooperative is eligible for the pilot when it:
+
+- Is a registered cooperative or farmer/produce aggregation group trading agricultural commodities.
+- Has at least one designated operator who can complete KYC and hold a Stellar wallet.
+- Can provide a business contact and a support escalation contact (no member PII required at intake).
+- Agrees to the escrow terms, the flat 1% platform fee, and the Proof-of-Delivery requirement.
+
+Ineligible or incomplete applications are rejected at intake with a reason; no partial
+records are created.
+
+### 2. Environment
+
+Pilot operators use the environment provisioned by the Amana team. Do not point a pilot
+cooperative at production secrets or another tenant's database.
+
+- Backend runs with the standard `backend/` setup (see **Getting Started** above).
+- Configure `.env` from `.env.example`; keep `.env` and `.env.tracing` out of version control.
+- Required integrations: Supabase (metadata), Pinata (IPFS uploads), Stellar (payments).
+- Use the Stellar testnet for pilot dry runs before any mainnet funding.
+
+If a required variable is missing, the service fails fast at startup rather than running
+in a partially configured state.
+
+### 3. Wallet Setup
+
+1. The cooperative operator creates a Stellar wallet and securely stores the secret key
+   offline. The backend never stores or logs private keys.
+2. The operator shares only the **public** wallet address with the Amana team for allowlisting.
+3. The Amana team confirms the address is registered and the operator can authenticate.
+4. The operator verifies they can sign a test transaction on testnet before proceeding.
+
+Loss of a wallet key is handled by re-onboarding a new public address; the old address is
+revoked. Never share secret keys in tickets, chat, or pull requests.
+
+### 4. Funding
+
+- Pilot escrows are funded in cNGN/stablecoins on Stellar; buyers may pay in local currency
+  via Stellar Path Payments.
+- Start with a small testnet amount to confirm the full escrow → PoD → settlement flow.
+- The flat 1% platform fee is deducted automatically on successful settlement.
+- Failed or disputed trades follow the loss-sharing ratio agreed at trade creation; funds are
+  not released until the dispute is resolved.
+
+### 5. Support
+
+- Operational issues: contact the Amana pilot support contact provided at onboarding.
+- Security incidents (suspected key compromise, unauthorized access): report immediately via
+  the private escalation channel; do not open a public issue with sensitive details.
+- When filing a bug, include the trade ID, timestamps, and error codes — never secrets or PII.
+
+### 6. Graduation
+
+A cooperative graduates from the pilot when it has:
+
+- Completed a minimum number of successful escrow settlements with valid Proof-of-Delivery.
+- Had no unresolved disputes or security incidents during the pilot window.
+- Confirmed wallet and operator details are current.
+
+On graduation the cooperative moves to standard onboarding with production credentials
+provisioned by the Amana team. Graduation status and any exceptions are recorded by the
+Amana team, not in this repository.
+
 ## Notes
 
 - `prisma/` contains schema and seed logic for the backend database.
