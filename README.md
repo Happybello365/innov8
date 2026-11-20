@@ -2,6 +2,44 @@
 
 Agricultural escrow platform for fair, transparent settlement between farmers, buyers, and logistics partners.
 
+## Path payments (NGN to cNGN)
+
+A path payment lets a buyer pay in NGN while the farmer receives cNGN, without either side holding the other currency. In plain language:
+
+1. The buyer sends NGN into escrow.
+2. The platform converts NGN to cNGN along a quoted path (one or more hops).
+3. The farmer is paid in cNGN once delivery is confirmed.
+
+If no path can convert the amount, the payment fails and the buyer's NGN stays in escrow unchanged.
+
+### Slippage
+
+Slippage is the gap between the quoted rate and the rate actually received. Prices move between quote and settlement, so the farmer may get slightly less cNGN than quoted. You set a maximum slippage (for example 1%). If the real rate would exceed it, the payment is rejected instead of silently short-changing the farmer. A tighter limit means fewer surprises but more retries; a looser limit means fewer retries but more variance.
+
+### Fees
+
+Path payments carry two costs, both shown before you confirm:
+
+- **Conversion fee** — charged on the converted amount, not on the loss portion of a partial delivery.
+- **Network fee** — a small fixed cost per hop for moving funds on-chain.
+
+Fees are rounded once at final settlement (round-half-up) so they never compound. A zero conversion fee is valid. Fee rates outside `[0, 1]` are rejected as invalid configuration.
+
+### Retries and failure states
+
+A path payment is retried only when the failure is transient (for example, a quote that expired or a temporary network error). Each retry re-quotes and re-checks your slippage limit; it never reuses a stale rate.
+
+| Condition | Outcome |
+| --- | --- |
+| No conversion path available | Rejected, escrow unchanged |
+| Slippage exceeds your limit | Rejected, escrow unchanged |
+| Quote expired | Retried with a fresh quote |
+| Temporary network error | Retried with backoff |
+| Fee rate outside `[0, 1]` | Rejected as invalid configuration |
+| Amount `0` or negative | Rejected |
+
+Rejected or exhausted retries leave escrow untouched and emit no partial payouts. Error messages never include party identifiers or amounts beyond what the caller already supplied.
+
 ## Loss-sharing examples workbook
 
 This workbook documents worked examples for loss ratios, rounding, fees, and partial delivery outcomes. All figures are illustrative and use whole currency units unless stated otherwise. No real account, party, or personal data is used in these examples.

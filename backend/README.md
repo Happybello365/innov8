@@ -97,6 +97,67 @@ npx jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatte
 CI runs this suite as a separate named step (`Admin auth regression suite`) so any
 regression in admin authentication causes CI to fail independently of the full test suite.
 
+## Path Payments (NGN → cNGN) — User Guide
+
+When a buyer pays for a trade, they can pay in **NGN** (their local currency) while the
+escrow holds value in **cNGN** (the stablecoin used for settlement). Amana does this with a
+Stellar **path payment**: the network finds a route from NGN to cNGN and converts the
+amount in a single transaction, so the buyer never has to hold cNGN themselves.
+
+### How a path payment works, in plain language
+
+1. The buyer confirms the trade amount in NGN.
+2. Amana asks Stellar to convert that NGN into cNGN along the best available path.
+3. The converted cNGN is deposited into the escrow contract and held until delivery is verified.
+4. On successful delivery, settlement runs as described in the loss-sharing examples below.
+
+If no route exists or the route cannot deliver the required cNGN, the payment fails and
+**no funds move** — the buyer is not charged.
+
+### Slippage
+
+Prices on the Stellar network can move slightly between the moment a quote is shown and
+the moment the transaction is submitted. **Slippage** is the small difference between the
+expected cNGN amount and the amount actually received.
+
+- Amana sets a **maximum slippage tolerance** on every path payment. If the route would
+deliver less cNGN than the tolerance allows, the transaction is rejected instead of
+silently accepting a worse rate.
+- The buyer sees the quoted amount and the tolerance before confirming. If the rate moves
+beyond the tolerance, they can retry to get a fresh quote.
+- Slippage protection is a safety limit, not a fee — it never costs the buyer money on its own.
+
+### Fees
+
+Path payments involve two separate costs, and it helps to keep them apart:
+
+- **Network fee**: a small Stellar network fee (a fraction of a cent) paid to submit the
+transaction. It is charged only when a transaction is actually submitted.
+- **Platform fee**: the flat **1%** Amana fee, deducted from the settled trade value at
+settlement time (see the loss-sharing examples). It is not part of the path payment itself.
+
+Conversion along the path does not add a hidden Amana markup; the buyer pays the quoted
+NGN amount plus the network fee.
+
+### Retry behavior and failure states
+
+Path payments can fail for reasons outside anyone's control (rate movement, temporary
+liquidity gaps, network congestion). Amana handles these predictably:
+
+- **Slippage exceeded**: the transaction is rejected before funds move. The buyer can retry
+  to receive a fresh quote; nothing is deducted.
+- **No path found**: Stellar could not find a route from NGN to cNGN. The payment fails
+  cleanly and the buyer is prompted to retry later.
+- **Insufficient balance**: the buyer's NGN balance does not cover the quoted amount plus the
+  network fee. The payment is rejected with a validation error and no funds move.
+- **Network/timeout errors**: transient failures are safe to retry. Amana never double-charges;
+  a transaction that did not confirm on-chain is not treated as paid.
+- **Already-settled trade**: retries against a trade that has already been funded or settled
+  are rejected so the escrow cannot be funded twice.
+
+In every failure case the escrow balance is unchanged, and error responses never include
+wallet secrets, private keys, or personal data.
+
 ## Loss-Sharing Examples Workbook
 
 Worked examples for how escrow settlement splits funds between buyer and seller when a
