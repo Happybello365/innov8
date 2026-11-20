@@ -30,6 +30,16 @@ It handles trade orchestration, Supabase metadata, IPFS/Pinata uploads, Stellar 
 - OpenTelemetry tracing with Jaeger/Prometheus/Zipkin exporters
 - Jest test suite for backend behavior
 
+## Observability
+
+Operational observability conventions are documented in `backend/docs/`:
+
+- [Observability field dictionary](./docs/observability-field-dictionary.md) — correlation IDs, trace/span names, metric labels, and cardinality limits
+- [Tail-based trace sampling](./docs/tail-based-trace-sampling.md)
+- [Business KPI metrics](./docs/business-kpi-metrics.md)
+- [Health probe semantics](./docs/health-probe-semantics.md)
+- [PII log scanning](./docs/pii-log-scanning.md)
+
 ## Getting Started
 
 ### Prerequisites
@@ -210,7 +220,7 @@ No loss occurred, so the loss ratio is not applied. The seller receives the full
 | seller payout | 85,000 cNGN |
 | buyer refund | 6,000 cNGN |
 
-### Example 4 — Rounding with an odd trade value
+### Example 4 — Rounding with a 50/50 loss ratio
 
 | Field | Value |
 | --- | --- |
@@ -219,44 +229,10 @@ No loss occurred, so the loss ratio is not applied. The seller receives the full
 | settled amount | 9,901 cNGN |
 | loss | 1,001 cNGN |
 | seller bears (50%, floored) | 500 cNGN |
-| buyer bears (remainder) | 501 cNGN |
+| buyer bears (50%, floored) | 500 cNGN |
 | seller payout | 9,401 cNGN |
-| buyer refund | 501 cNGN |
+| buyer refund | 500 cNGN |
+| remainder retained | 1 cNGN |
 
-`10,001 * 0.01 = 100.01` floors to `100`. `1,001 * 0.5 = 500.5` floors to `500` for the
-seller; the buyer absorbs the remaining `501` so the two shares always sum to the loss.
-
-### Example 5 — Total loss in transit
-
-| Field | Value |
-| --- | --- |
-| tradeValue | 50,000 cNGN |
-| platformFee (1%) | 500 cNGN |
-| settled amount | 49,500 cNGN |
-| loss | 50,000 cNGN |
-| seller payout | 0 cNGN |
-| buyer refund | 49,500 cNGN |
-
-When the loss equals or exceeds the trade value, the seller receives nothing and the
-buyer is refunded the full settled amount. The platform fee is still retained.
-
-### Edge cases and failure states
-
-- **Loss exceeds trade value**: clamp the loss to `tradeValue`; the buyer refund never exceeds the settled amount.
-- **Zero or negative trade value**: reject the settlement request with a validation error; no funds move.
-- **Loss ratio outside 0–100**: reject with a validation error rather than silently clamping.
-- **Fee rounding**: always floor the fee so the escrow cannot overdraw; the remainder stays in escrow.
-- **Disputed PoD**: settlement is blocked until the dispute is resolved; no partial payouts are issued.
-
-These examples contain no wallet addresses, personal data, or secrets and are safe to
-share in issues and pull requests.
-
-## Notes
-
-- `prisma/` contains schema and seed logic for the backend database.
-- `src/` contains the Express server, routes, middleware, services, and docs.
-- `dist/` is the compiled output directory created by `npm run build`.
-
-## Repository Scope
-
-This backend service lives inside the `backend/` folder of the Amana monorepo and provides the API, database, and infrastructure integration for the project.
+Rounding down on both the fee and the loss split leaves a 1 cNGN remainder in the escrow
+contract; it is never paid out.
