@@ -80,11 +80,6 @@ Amana enforces stack-level CI gates on pull requests through `.github/workflows/
 
 - **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
 - **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobil
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
-
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
 - **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobile/`
 - **Contracts Required Gate**: `cargo test` in `contracts/amana_escrow/`
 
@@ -137,71 +132,94 @@ For the protected branch (`main`), set these required status checks:
 
 ---
 
-## 🔍 Distributed Tracing
+## 🤝 Pilot Cooperative Onboarding Guide
 
-Amana includes comprehensive distributed tracing with OpenTelemetry for end-to-end request visibility and faster incident triage.
+This guide walks a regional agricultural cooperative through joining the innov8 pilot program. It covers eligibility, environment setup, wallet setup, funding, support, and graduation. It is documentation only and does not change application, contract, or configuration behavior.
 
-### Features
+### 1. Eligibility
 
-- **Correlation IDs**: Unique identifiers spanning frontend-backend requests
-- **Request Tracing**: Complete request lifecycle tracking
-- **Service Integration**: Automatic tracing for external services (IPFS, Stellar)
-- **Observability**: Jaeger, Zipkin, and Prometheus integration
+A cooperative is eligible for the pilot when it meets all of the following:
 
-### Quick Start
+- Registered cooperative or farmer group with an active membership roster.
+- At least one designated pilot coordinator who can operate the frontend and mobile apps.
+- Buyers and sellers who can complete trades in cNGN/stablecoins on Stellar.
+- Agreement to the platform's 1% settlement fee and the negotiable `Loss_Ratio` model.
+- A named point of contact for support and dispute escalation.
 
-1. Configure tracing environment variables (see `backend/.env.tracing.example`)
-2. Start Jaeger for trace visualization: `docker run -p 16686:16686 jaegertracing/all-in-one`
-3. View traces at `http://localhost:16686`
-4. Check metrics at `http://localhost:9464/metrics`
+Coordinators should confirm eligibility with the innov8 team before provisioning wallets or funding accounts.
 
-### Documentation
+### 2. Environment
 
-See [DISTRIBUTED_TRACING_GUIDE.md](./DISTRIBUTED_TRACING_GUIDE.md) for detailed setup and usage instructions.
+Pilot participants use the standard stack described above. Recommended setup:
+
+- **Frontend:** `frontend/` running against the pilot backend endpoint.
+- **Mobile:** `mobile/` for field coordinators and drivers.
+- **Backend:** managed by the innov8 team; cooperatives do not run their own backend in the pilot.
+- **Contracts:** deployed by the innov8 team on the pilot network; cooperatives do not deploy contracts.
+
+Copy the relevant `.env.example` files as described in the setup sections above. Never commit `.env` files, seed phrases, or private keys. Report suspected secret exposure per [SECURITY.md](./SECURITY.md).
+
+### 3. Wallet Setup
+
+1. Install [Freighter](https://www.freighter.app/) or use [Albedo](https://albedo.link/).
+2. Create a dedicated wallet per cooperative entity (not a personal wallet).
+3. Back up the recovery phrase offline and store it in a secure, access-controlled location.
+4. Connect the wallet to the pilot frontend and confirm the public address is displayed correctly.
+5. Register the wallet address with the innov8 pilot coordinator so it can be allowlisted for the pilot.
+
+Do not share recovery phrases with anyone, including innov8 staff. Support will never ask for a recovery phrase or private key.
+
+For step-by-step testnet wallet creation, funding, network selection, and reset procedures, see the [Stellar Testnet Pilot Wallet Guide](./docs/stellar-testnet-pilot-wallet.md).
 
 ---
 
-## 📐 Architecture Decision Records
+## ⚖️ Mediator Decision-Making Guide
 
-Key architectural decisions are documented as ADRs in [`docs/adr/`](./docs/adr):
+This guide describes how mediators review disputes, handle conflicts of interest, escalate, and protect privacy. It is documentation only and does not change application, contract, or configuration behavior. Mediators act on the existing dispute workflow in the Mediator dashboard; the smart contract enforces the final settlement distribution.
 
-- [ADR-001: Stellar Path Payment Architecture](./docs/adr/ADR-001-stellar-path-payment-architecture.md)
-- [ADR-002: Escrow Loss-Sharing Model](./docs/adr/ADR-002-escrow-loss-sharing-model.md)
-- [ADR-003: Off-chain vs. On-chain Data Partitioning](./docs/adr/ADR-003-offchain-vs-onchain-data-partitioning.md)
-- [ADR-004: Idempotency and Retry Strategy](./docs/adr/ADR-004-idempotency-and-retry-strategy.md)
-- [ADR-005: Frontend State Management](./docs/adr/ADR-005-frontend-state-management.md)
+### 1. Evidence Review
 
-## 🔐 Security & Operations
+When a dispute is opened, the buyer and seller may submit evidence (for example, Proof-of-Delivery video stored on IPFS, driver manifest logs, and trade metadata). Mediators should:
 
-- [Security Policy](./SECURITY.md) — privately report vulnerabilities through GitHub's private vulnerability reporting.
-- [Threat Model](./docs/threat-model.md) — reviewed quarterly and on trigger events; see §8 for cadence/ownership and `docs/threat-model-review-checklist.md` for the reviewer checklist.
-- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders are opened automatically by [`.github/workflows/secrets-rotation-reminder.yml`](./.github/workflows/secrets-rotation-reminder.yml).
-- [PII Encryption at Rest](./docs/pii-encryption.md) — classified PII column inventory, app-layer envelope encryption design, blind-index search, key rotation procedure, and decrypt access logging.
-- [Software Bill of Materials (SBOM)](./docs/sbom.md) — CycloneDX SBOM generated for every release artifact via [`.github/workflows/sbom.yml`](./.github/workflows/sbom.yml), attached to GitHub Releases, with a weekly vulnerability diff scan.
-- [Golden Signals Dashboard](./docs/dashboards.md) — Grafana dashboard stored as code ([`infra/grafana/`](./infra/grafana)) covering API latency/traffic/errors and DB/queue saturation, with deploy annotations wired into staging deploys.
-- [Alert Routing Policy](./docs/alert-routing-policy.md) — page-vs-ticket severity rubric, runbook linkage enforced in CI, per-alert dedup windows, and the [monthly alert review log](./docs/alert-review-log.md).
-- [Synthetic Probes Policy](./docs/synthetic-probes-policy.md) — hourly staging probe of the core escrow journey (auth → create → deposit → release), with failure alerting and a results dashboard log.
-- [Incident Response](./docs/runbooks/incident-response.md) — severity levels, incident roles, and channel/ticket conventions; see the [postmortem template](./docs/runbooks/postmortem-template.md), the [postmortem archive](./docs/postmortems/README.md), and a worked [tabletop exercise](./docs/runbooks/tabletop-exercise-escrow-drain.md).
+- Confirm the trade is in the `Dispute` state and that the agreed `Loss_Ratio` is visible before reviewing evidence.
+- Review all submitted evidence for both parties, not just the first submission.
+- Verify that video evidence hashes match the IPFS references recorded for the trade; treat unverifiable or mismatched evidence as unconfirmed.
+- Cross-check the driver manifest (driver name, phone, vehicle) against the trade record.
+- Record the evidence considered and the reasoning in the dispute notes so the decision is auditable.
+- Give both parties a reasonable window to respond before deciding; do not decide on one-sided evidence unless a party fails to respond within the stated window.
 
-## 🤝 Contributing
+### 2. Conflict Handling
 
-innov8 is an open-source project aimed at improving food security and trade efficiency. We welcome developers, designers, and agricultural experts!
+- A mediator must decline any dispute where they have a personal, financial, or family relationship with either party, the driver, or the goods involved.
+- A mediator must not mediate a dispute for a trade they initiated, funded, or are otherwise party to.
+- If a conflict is discovered after review begins, the mediator must stop, disclose the conflict to the innov8 team, and hand the dispute to another mediator.
+- Mediators must not accept gifts, payments, or favors from either party in exchange for a favorable outcome.
+- Decisions must be based only on the evidence and the agreed `Loss_Ratio`, not on the parties' reputation scores alone.
 
-1. Fork the Project.
-2. Create your Feature Branch (`git checkout -b feature/NewFeature`).
-3. Commit your Changes (`git commit -m 'Add NewFeature'`).
-4. Push to the Branch (`git push origin feature/NewFeature`).
-5. Open a Pull Request.
+### 3. Escalation
 
-### Admin route development
+Escalate a dispute to the innov8 team when any of the following applies:
 
-If you are adding or modifying admin routes, see the
-[Admin Route Contribution Guide](./docs/admin-route-contribution-guide.md)
-for architecture details, middleware requirements, testing expectations, and a
-step-by-step example.
+- Evidence is missing, contradictory, or cannot be verified against IPFS references.
+- The parties allege fraud, theft, or threats, or the situation appears unsafe.
+- The dispute involves amounts or patterns that suggest abuse of the pilot.
+- A conflict of interest cannot be resolved by reassignment.
+- A technical failure (for example, an unreadable video or a failed settlement transaction) blocks a decision.
 
-## 📄 License
+When escalating, share only the trade identifier, the dispute state, and the evidence references needed to act. Do not paste recovery phrases, private keys, or full personal contact details into escalation channels.
 
-Distributed under the MIT License. See `LICENSE` for more information.
+### 4. Privacy Expectations
 
-// setting up and starting out
+- Access evidence only for disputes assigned to you; do not browse unrelated trades.
+- Do not download, copy, or redistribute evidence outside the dispute workflow.
+- Do not share parties' personal data (names, phone numbers, addresses, wallet recovery material) with third parties.
+- Redact personal data from dispute notes and escalation messages where it is not needed to decide the dispute.
+- Report any suspected data exposure or secret leak per [SECURITY.md](./SECURITY.md).
+
+### 5. Failure States
+
+- If evidence cannot be loaded, do not guess the outcome; escalate and leave the dispute open.
+- If a settlement transaction fails, do not retry with altered parameters; escalate so the innov8 team can investigate.
+- If a party stops responding, document the attempts and the response window before deciding.
+
+---
