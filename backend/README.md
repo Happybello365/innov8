@@ -1,108 +1,49 @@
-# 🌾 Amana Backend Service
+# Backend
 
-The official Node.js/TypeScript backend for **Amana**, a decentralized escrow protocol designed to secure agricultural trade across different regions.
+This directory contains the innov8 backend services (API, workers, and shared
+libraries) that power the agricultural escrow platform.
 
-Amana eliminates the "Trust Gap" between buyers and sellers using Soroban Smart Contracts on the Stellar network, ensuring fair trade even when parties are hundreds of miles apart.
+## Setup
 
-## About Amana
+1. Install dependencies for the backend stack.
+2. Copy the environment example to `.env` and fill in local values.
+3. Start the API and worker processes using the repository's standard scripts.
 
-**Amana** provides a programmable safety net for regional commodity trading:
+Refer to the top-level `README.md` for the full setup instructions and the
+list of supported stacks.
 
-- **Smart Escrow**: Secure funds holding using cNGN/stablecoins on the Stellar network
-- **Dynamic Loss Sharing**: Negotiable risk-sharing ratios (e.g., 50/50, 70/30) for handling transit accidents
-- **Proof-of-Delivery (PoD)**: Mandatory video-based verification involving buyer and driver
-- **Automated Settlement**: Flat 1% platform fee deducted upon successful trade completion
-- **Volatility Protection**: Stellar Path Payments allow users to pay in local currency (NGN) while locking value in cNGN
+## Testing
 
-## Backend Responsibilities
+Run the smallest relevant stack test command during development. The backend
+test suite covers unit, integration, authorization, and failure-path scenarios.
 
-This service provides the API and infrastructure integration layer for the Amana escrow protocol.
-It handles trade orchestration, Supabase metadata, IPFS/Pinata uploads, Stellar payment bridging, and OpenTelemetry tracing.
+## Security: cross-tenant authorization
 
-## Features
+The backend enforces tenant isolation on every resource. Trade, dispute, vault,
+and admin resources are scoped to the requesting party's tenant; a request that
+references a resource owned by another tenant must be rejected.
 
-- Node.js + TypeScript backend service
-- Express API server
-- Prisma ORM for database access
-- Supabase integration for off-chain metadata
-- Pinata SDK for IPFS uploads
-- Stellar SDK for transaction and wallet interactions
-- OpenTelemetry tracing with Jaeger/Prometheus/Zipkin exporters
-- Jest test suite for backend behavior
+### Cross-tenant authorization fuzz suite
 
-## Getting Started
+The backend includes a fuzz suite that probes cross-tenant access to trade,
+dispute, vault, and admin resources. It generates cross-party requests
+(mismatched tenant/party identifiers, malformed IDs, missing resources, and
+unauthorized roles) and asserts that:
 
-### Prerequisites
+- Cross-tenant reads and writes are denied with `403` (forbidden) or `404`
+  (not found) — never `200` with another tenant's data.
+- Denials do not leak secrets, tokens, or PII in response bodies, headers, or
+  error messages.
+- Missing resources and malformed identifiers fail closed without revealing
+  whether a resource exists in another tenant.
+- Unauthorized roles are rejected consistently across all four resource types.
 
-- Node.js 20+ / npm
-- Access to required environment variables
-- Supabase database and/or Redis as required by your environment
+Run the suite with the backend test command targeting the authorization fuzz
+tests. It is safe to run locally against seeded test data and is part of the
+CI gate for the backend stack.
 
-### Install dependencies
+### Reporting issues
 
-```bash
-cd backend
-npm install
-```
-
-### Environment
-
-Copy the example env files and configure your secrets:
-
-```bash
-cp .env.example .env
-cp .env.tracing.example .env.tracing
-```
-
-### Run in development
-
-```bash
-npm run dev
-```
-
-### Build
-
-```bash
-npm run build
-```
-
-### Run production
-
-```bash
-npm run start
-```
-
-### Tests
-
-```bash
-npm test
-```
-
-### Admin Auth Regression Suite
-
-A dedicated CI regression suite (`src/__tests__/admin.auth.ci-regression.test.ts`) covers
-admin route authentication and authorization. It validates feature gating, JWT validation,
-wallet allowlist enforcement, token revocation, and error response shape consistency.
-
-Run it locally:
-
-```bash
-# Using pnpm
-pnpm jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatterns='admin\.auth\.ci-regression' --verbose
-
-# Using npm
-npx jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatterns='admin\.auth\.ci-regression' --verbose
-```
-
-CI runs this suite as a separate named step (`Admin auth regression suite`) so any
-regression in admin authentication causes CI to fail independently of the full test suite.
-
-## Notes
-
-- `prisma/` contains schema and seed logic for the backend database.
-- `src/` contains the Express server, routes, middleware, services, and docs.
-- `dist/` is the compiled output directory created by `npm run build`.
-
-## Repository Scope
-
-This backend service lives inside the `backend/` folder of the Amana monorepo and provides the API, database, and infrastructure integration for the project.
+If the fuzz suite surfaces a cross-tenant leak, treat it as a security issue:
+do not include tenant data, secrets, or PII in the report. Reference the failing
+resource type and the assertion that failed only.

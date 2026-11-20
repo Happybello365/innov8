@@ -4,6 +4,11 @@ name: Container Scan
 # Blocks merge on fixable CRITICAL CVEs in the third-party base images the
 # project runs, and on HIGH/CRITICAL IaC misconfiguration. Exceptions live in
 # .trivyignore with a `# expires: YYYY-MM-DD` marker per entry.
+#
+# Supply-chain provenance (issue #560): the `provenance` job generates SLSA
+# build provenance for the scanned image digests and publishes it as a signed
+# attestation artifact. The `verify-provenance` job re-verifies the attestation
+# and fails closed on any mismatch before the digests are treated as trusted.
 
 on:
   workflow_dispatch:
@@ -101,6 +106,91 @@ jobs:
           exit-code: "1"
           severity: HIGH,CRITICAL
           trivyignores: .trivyignore
+
+  provenance:
+    name: Generate SLSA provenance
+    runs-on: ubuntu-latest
+    needs: trivyignore-expiry
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - postgres:17-alpine
+          - redis:7-alpine
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Resolve image digest
+        id: digest
+        run: |
+          set -euo pipefail
+          ref="${{ matrix.image }}"
+          digest=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const m=JSON.parse(d);if(!m.digest){console.error("missing digest");process.exit(1);}process.stdout.write(m.digest);})')
+          if [ -z "$digest" ]; then
+            echo "::error::Could not resolve digest for $ref"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SLSA provenance attestation
+        uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c  # v1
+        with:
+          subject-name: ${{ steps.digest.outputs.ref }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: false
+
+      - name: Upload provenance bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: provenance-${{ strategy.job-index }}
+          path: |
+            *.intoto.jsonl
+          if-no-files-found: error
+          retention-days: 90
+
+  verify-provenance:
+    name: Verify provenance attestation
+    runs-on: ubuntu-latest
+    needs: provenance
+    permissions:
+      contents: read
+      id-token: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Download provenance bundles
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4
+        with:
+          pattern: provenance-*
+          path: provenance
+          merge-multiple: true
+
+      - name: Verify attestation (fail closed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(provenance/*.intoto.jsonl)
+          if [ "${#bundles[@]}" -eq 0 ]; then
+            echo "::error::No provenance bundles found — refusing to trust artifacts"
+            exit 1
+          fi
+          for bundle in "${bundles[@]}"; do
+            echo "Verifying $bundle"
+            gh attestation verify "$bundle" \
+              --repo "${{ github.repository }}" \
+              --signer-workflow "${{ github.repository }}/.github/workflows/container-scan.yml" \
+              || { echo "::error::Provenance verification failed for $bundle"; exit 1; }
+          done
+          echo "All provenance attestations verified."
 
   posture-report:
     name: Image posture report
