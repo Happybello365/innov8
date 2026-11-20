@@ -47,6 +47,52 @@ Complex issues may take longer; we will explain delays and keep the reporter
 updated. Please coordinate public disclosure with the maintainers and allow
 time for investigation and remediation.
 
+## Disclosure Triage SLA
+
+Every report is triaged against the severity tiers below. Timelines are
+measured from the moment a report is received through the private channel and
+are targets, not guarantees. Business days exclude weekends and repository-wide
+holidays.
+
+| Tier | Typical impact | Acknowledge | Triage & response | Remediation target | Disclosure |
+| --- | --- | --- | --- | --- | --- |
+| **Critical** | Direct loss of funds, private key or escrow compromise, unauthenticated remote code execution | 1 business day | 2 business days | 7 calendar days | Coordinated, within 30 calendar days of the fix |
+| **High** | Privilege escalation, authorization bypass, sensitive data exposure | 2 business days | 5 business days | 30 calendar days | Coordinated, within 60 calendar days of the fix |
+| **Medium** | Limited-impact data exposure, denial of service, misconfiguration | 3 business days | 7 business days | 90 calendar days | Coordinated, within 90 calendar days of the fix |
+| **Low** | Defense-in-depth gaps, hardening, informational findings | 5 business days | 10 business days | Best effort | At maintainer discretion |
+
+- **Acknowledgement** confirms we received the report and opened a private
+  channel; it does not confirm the finding.
+- **Triage & response** is when we assign a severity tier and share an initial
+  assessment, including any request for more information.
+- **Remediation target** is the goal for a fix or mitigation on the default
+  branch. Complex issues may take longer; we will explain delays and keep the
+  reporter updated at least every **14 calendar days**.
+- **Disclosure** is coordinated with the reporter. We will credit reporters who
+  wish to be acknowledged and will not publish details that could endanger
+  users or funds before a fix is available.
+
+### Edge Cases and Failure States
+
+- **Disputed severity.** If the reporter and maintainers disagree on the tier,
+  we default to the higher tier until triage is complete and document the
+  rationale in the private report. Reporters may escalate to a second
+  maintainer for review.
+- **Incomplete reports.** If a report lacks reproduction steps or affected
+  versions, we acknowledge it and request the missing details. The triage clock
+  pauses until the information is provided, then resumes from the original
+  receipt date.
+- **Third-party dependencies.** For vulnerabilities in upstream dependencies or
+  third-party services, we coordinate with the upstream maintainer, track the
+  report internally, and keep the reporter informed. Remediation timelines may
+  depend on the upstream project's release schedule.
+- **Actively exploited issues.** Reports indicating active exploitation are
+  treated as **Critical** regardless of initial tier and may trigger an
+  out-of-band mitigation before a full fix.
+- **No response from reporter.** If a reporter becomes unresponsive, we retain
+  the report privately and proceed with remediation; disclosure follows the
+  tier timelines above.
+
 ## Supported Versions
 
 The latest version on the default branch is supported for security reports.
