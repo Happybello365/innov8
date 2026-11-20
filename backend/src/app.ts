@@ -21,6 +21,7 @@ import { inboundWebhooksRoutes } from "./routes/webhooks.inbound.routes";
 import { captureRawBody } from "./middleware/webhookSignature.middleware";
 import { createAdminDlqRouter } from "./routes/admin.dlq.routes";
 import { createAdminReportRouter } from "./routes/admin.report.routes";
+import { createAdminNotificationTemplatesRouter } from "./routes/admin.notificationTemplates.routes";
 import { adminFeatureGate } from "./middleware/adminFeatureGate.middleware";
 import { env } from "./config/env";
 import { csrfProtection } from "./middleware/csrf.middleware";
@@ -146,6 +147,9 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
 
   // Admin trade batch operations: POST /admin/trades/batch/status
   app.use(adminFeatureGate, csrfProtection, createAdminTradeBatchRouter());
+
+  // Notification template preview / self test-send: /admin/notifications/templates
+  app.use(adminFeatureGate, csrfProtection, createAdminNotificationTemplatesRouter());
 
   // Admin payout idempotency: GET /api/admin/payouts, POST /api/admin/payouts/reconcile, GET /api/admin/payouts/pending
   app.use(adminFeatureGate, csrfProtection, createAdminPayoutsRouter());
