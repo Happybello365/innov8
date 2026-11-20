@@ -209,41 +209,87 @@ accounts are rejected.
 ### Accepted formats
 
 - Images: JPEG or PNG.
-- Video: MP4 or MOV.
+- Video: MP4.
 - Documents: PDF.
-- Keep each file reasonably small and legible; blur or redact anything not needed to
-  support the claim.
+
+Keep each file reasonably small and upload only what is needed to support the claim.
 
 ### How to submit
 
-1. Open the disputed trade in the app and select **Submit evidence**.
-2. Choose your role (buyer, seller, or driver) and the evidence category.
-3. Upload the files and add a short, factual description with dates and quantities.
+1. Open the disputed trade in the Amana app and select **Submit evidence**.
+2. Choose the evidence type and attach the files listed above.
+3. Add a short factual description (what happened, when, and where).
 4. Submit before the dispute response window closes; late evidence may not be considered.
-5. Confirm the upload succeeded — a failed upload is not recorded and must be retried.
 
-### Edge cases and failure states
+### Privacy
 
-- **Upload fails or times out** — retry; nothing is recorded until the upload completes.
-- **Unsupported or oversized file** — the submission is rejected with a reason; convert or
-  trim the file and try again.
-- **Window closed** — new evidence is rejected; contact pilot support with the trade ID.
-- **Duplicate submission** — resubmitting the same file replaces nothing; add only new evidence.
+- Redact unrelated personal data (faces of bystanders, phone numbers, bank details) before upload.
+- Never upload secret keys, passwords, or full identity documents.
+- Evidence is visible only to the dispute participants and the assigned mediator.
 
-### Privacy and safety
+## Mediator Decision-Making Guide
 
-- Never submit secret keys, passwords, API tokens, or full bank/card numbers.
-- Redact national IDs, phone numbers, and addresses that are not needed to support the claim.
-- Do not post evidence in public issues or chat; use the in-app dispute flow or the private
-  escalation channel.
-- When contacting support, include the trade ID and timestamps — never secrets or PII.
+This guide describes how mediators review evidence, handle conflicts, escalate, and protect
+privacy when resolving a disputed trade. It is documentation only and does not change
+application behavior. Mediators act on the trade's dispute record; funds remain locked under
+the agreed loss-sharing ratio until a decision is recorded.
 
-## Notes
+### 1. Evidence review
 
-- `prisma/` contains schema and seed logic for the backend database.
-- `src/` contains the Express server, routes, middleware, services, and docs.
-- `dist/` is the compiled output directory created by `npm run build`.
+1. Confirm you are the assigned mediator for the trade before opening any evidence.
+2. Read the trade terms first: agreed quantity, quality, delivery terms, and loss-sharing ratio.
+3. Review each participant's evidence against the claim it supports, not against the party.
+4. Check integrity signals: timestamps, waybill or weighbridge numbers, and whether the
+   Proof-of-Delivery video matches the reported handover.
+5. Record which evidence you relied on and which you set aside, with a one-line reason each.
 
-## Repository Scope
+If evidence is missing, unreadable, or clearly unrelated, request a clarification from the
+submitting participant before deciding. Do not infer facts that no evidence supports.
 
-This backend service lives inside the `backend/` folder of the Amana monorepo and provides the API, database, and infrastructure integration for the project.
+### 2. Conflict handling
+
+- When participants' accounts conflict, weigh evidence by relevance and verifiability, not
+  by who submitted more files.
+- Prefer contemporaneous records (waybills, weighbridge tickets, PoD video) over later
+  recollections or chat summaries.
+- If two credible records conflict and neither can be verified, treat the point as unresolved
+  and say so in the decision rationale.
+- Never pressure a participant to withdraw a claim, and never share one party's evidence with
+  the other beyond what the dispute workflow already exposes.
+
+### 3. Decision and rationale
+
+- Apply the loss-sharing ratio agreed at trade creation; do not invent a new split.
+- State the outcome (release, partial release, or refund), the evidence relied on, and any
+  unresolved points.
+- Keep the rationale factual and free of speculation about participants' character.
+
+### 4. Escalation
+
+Escalate to the Amana dispute lead instead of deciding when:
+
+- Evidence suggests fraud, forged documents, or a compromised account or wallet key.
+- The disputed amount or loss-sharing impact exceeds your assigned authority.
+- A participant reports a security incident or threatens another participant.
+- You have a conflict of interest with any participant on the trade.
+
+When escalating, include the trade ID, a summary of the conflict, and the evidence references —
+never secret keys, passwords, or unnecessary PII. Suspected key compromise or unauthorized
+access goes through the private security escalation channel, not a public issue.
+
+### 5. Privacy expectations
+
+- Access only the evidence needed for the trade you are assigned to.
+- Do not copy evidence out of the dispute record, forward it, or store it on personal devices.
+- Redact bystander faces, phone numbers, and bank details before referencing an attachment.
+- Never request or accept secret keys, passwords, or full identity documents from participants.
+- Report any accidental exposure of participant data to the dispute lead immediately.
+
+### 6. Failure states
+
+- If the dispute record is inaccessible or evidence fails to load, pause and escalate rather
+  than deciding on partial information.
+- If a decision cannot be recorded, do not tell participants funds have moved; confirm the
+  recorded state before communicating any outcome.
+- If you are reassigned mid-review, hand over the evidence references and rationale notes to
+  the new mediator through the private channel.

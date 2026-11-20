@@ -70,3 +70,51 @@ If you accidentally submit sensitive information, contact the maintainers immedi
 - **Submission after the dispute window closes** — late evidence may not be accepted; check the dispute status before submitting.
 - **Upload failure** — retry the submission; if it keeps failing, contact support and reference the order ID (never include credentials in the message).
 - **Duplicate submissions** — submitting the same evidence again is unnecessary; update your statement instead.
+
+---
+
+# Mediator Decision-Making Guide
+
+This guide describes how mediators review evidence, handle conflicts, escalate, and protect privacy when resolving escrow disputes. It applies to the mediator review workflow reachable from the dispute review screens.
+
+## Evidence review
+
+1. Confirm you are assigned to the dispute and that all participants have had a reasonable window to submit evidence.
+2. Read each participant's statement and attachments in full before forming a view.
+3. Check that evidence is relevant to the order and the specific claim; disregard unrelated material.
+4. Weigh evidence by relevance and consistency, not by volume. Note gaps or contradictions.
+5. Record a short, factual rationale for your decision that references the evidence considered.
+
+## Conflict handling
+
+- **Conflicting accounts** — compare against objective records (order, shipment, tracking, receipts) and ask participants for clarification before deciding.
+- **Conflicting evidence** — prefer verifiable, dated, order-linked evidence over unsupported statements.
+- **Conflict of interest** — if you have a personal or financial relationship with any participant, recuse yourself and escalate to another mediator.
+- **Incomplete evidence** — request the missing item once with a clear deadline; do not decide solely on absence unless the window has closed.
+
+## Escalation
+
+Escalate to a senior mediator or maintainer when:
+
+- The dispute involves suspected fraud, threats, or illegal activity.
+- Evidence suggests compromised accounts, keys, or credentials.
+- Participants dispute the applicable policy or the decision would set a precedent.
+- You cannot reach a decision within the review window.
+
+When escalating, share only the order ID, a factual summary, and the relevant evidence references — never credentials or unrelated personal data.
+
+## Privacy expectations
+
+- Access only the evidence needed to decide the dispute.
+- Do not copy, forward, or store participant evidence outside the review workflow.
+- Do not disclose one participant's personal data to another beyond what is necessary to resolve the dispute.
+- Redact sensitive details (IDs, addresses, payment data) from decision rationales.
+- Report any accidental exposure of sensitive data to the maintainers immediately.
+
+## Edge cases and failure states
+
+- **Missing or unreadable evidence** — request a resubmission with a deadline; document the request.
+- **Late evidence** — accept only if the review window is still open; otherwise note it and proceed.
+- **Recusal required** — hand off promptly and avoid reviewing the dispute further.
+- **Escalation unavailable** — pause the decision and notify the maintainers rather than deciding alone.
+- **Suspected credential leak** — stop, escalate, and do not reproduce the sensitive content in notes or messages.

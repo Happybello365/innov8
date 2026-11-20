@@ -173,66 +173,53 @@ For step-by-step testnet wallet creation, funding, network selection, and reset 
 
 ---
 
-## ⚖️ Dispute Participant Evidence Guide
+## ⚖️ Mediator Decision-Making Guide
 
-This guide explains what evidence buyers, sellers, and drivers may submit when a trade is disputed, the accepted formats, and how to submit it. It is documentation only and does not change application, contract, or configuration behavior. Mediators review submitted evidence against the agreed `Loss_Ratio` and the trade manifest before settlement.
+This guide describes how mediators review disputes, handle conflicts of interest, escalate, and protect privacy. It is documentation only and does not change application, contract, or configuration behavior. Mediators act on the existing dispute workflow in the Mediator dashboard; the smart contract enforces the final settlement distribution.
 
-### 1. Who submits what
+### 1. Evidence Review
 
-**Buyers** may submit:
+When a dispute is opened, the buyer and seller may submit evidence (for example, Proof-of-Delivery video stored on IPFS, driver manifest logs, and trade metadata). Mediators should:
 
-- Proof-of-Delivery (PoD) video showing the goods on arrival, including any damage, shortage, or spoilage.
-- Photos of the delivered goods, packaging, and seals.
-- The delivery note or waybill signed at handover.
-- A short written statement describing the issue and the expected outcome.
+- Confirm the trade is in the `Dispute` state and that the agreed `Loss_Ratio` is visible before reviewing evidence.
+- Review all submitted evidence for both parties, not just the first submission.
+- Verify that video evidence hashes match the IPFS references recorded for the trade; treat unverifiable or mismatched evidence as unconfirmed.
+- Cross-check the driver manifest (driver name, phone, vehicle) against the trade record.
+- Record the evidence considered and the reasoning in the dispute notes so the decision is auditable.
+- Give both parties a reasonable window to respond before deciding; do not decide on one-sided evidence unless a party fails to respond within the stated window.
 
-**Sellers** may submit:
+### 2. Conflict Handling
 
-- Dispatch photos or video showing goods and packaging in good condition before loading.
-- The vehicle manifest (driver name, phone number, plate number) recorded at dispatch.
-- Weight, grade, or quality records captured at loading.
-- A short written statement describing the dispatch conditions and any agreed handling instructions.
+- A mediator must decline any dispute where they have a personal, financial, or family relationship with either party, the driver, or the goods involved.
+- A mediator must not mediate a dispute for a trade they initiated, funded, or are otherwise party to.
+- If a conflict is discovered after review begins, the mediator must stop, disclose the conflict to the innov8 team, and hand the dispute to another mediator.
+- Mediators must not accept gifts, payments, or favors from either party in exchange for a favorable outcome.
+- Decisions must be based only on the evidence and the agreed `Loss_Ratio`, not on the parties' reputation scores alone.
 
-**Drivers** may submit:
+### 3. Escalation
 
-- Photos or video of the vehicle, cargo, and seals at pickup and at delivery.
-- Transit notes covering delays, accidents, theft, or route changes.
-- Handover confirmation showing who received the goods and when.
-- A short written statement describing what happened during transit.
+Escalate a dispute to the innov8 team when any of the following applies:
 
-Only submit evidence for trades you are a party to. Do not submit evidence on behalf of another participant.
+- Evidence is missing, contradictory, or cannot be verified against IPFS references.
+- The parties allege fraud, theft, or threats, or the situation appears unsafe.
+- The dispute involves amounts or patterns that suggest abuse of the pilot.
+- A conflict of interest cannot be resolved by reassignment.
+- A technical failure (for example, an unreadable video or a failed settlement transaction) blocks a decision.
 
-### 2. Accepted formats
+When escalating, share only the trade identifier, the dispute state, and the evidence references needed to act. Do not paste recovery phrases, private keys, or full personal contact details into escalation channels.
 
-- **Video:** MP4 or MOV, kept as short as possible while still showing the relevant goods and context.
-- **Images:** JPG or PNG, clear and in focus.
-- **Documents:** PDF for delivery notes, waybills, and manifests.
-- **Text:** A plain written statement in the dispute form.
+### 4. Privacy Expectations
 
-Video and image evidence is stored on IPFS via Pinata; only the resulting content reference and trade metadata are kept off-chain. Keep each file reasonably sized so uploads complete on field connections.
+- Access evidence only for disputes assigned to you; do not browse unrelated trades.
+- Do not download, copy, or redistribute evidence outside the dispute workflow.
+- Do not share parties' personal data (names, phone numbers, addresses, wallet recovery material) with third parties.
+- Redact personal data from dispute notes and escalation messages where it is not needed to decide the dispute.
+- Report any suspected data exposure or secret leak per [SECURITY.md](./SECURITY.md).
 
-### 3. How to submit
+### 5. Failure States
 
-1. Open the disputed trade in the frontend or mobile app.
-2. Select **Submit evidence** on the dispute.
-3. Choose the evidence type (video, image, document, or statement).
-4. Upload the file or enter your written statement.
-5. Confirm the submission and wait for the upload to finish before closing the app.
-6. Record the confirmation shown after upload; share it with the pilot coordinator if you need support.
+- If evidence cannot be loaded, do not guess the outcome; escalate and leave the dispute open.
+- If a settlement transaction fails, do not retry with altered parameters; escalate so the innov8 team can investigate.
+- If a party stops responding, document the attempts and the response window before deciding.
 
-Submit evidence as soon as the issue is identified and before the dispute review closes. Late evidence may not be considered.
-
-### 4. Edge cases and failure states
-
-- **Upload fails or times out:** retry on a stable connection. If it keeps failing, contact the pilot coordinator and keep the original file.
-- **Wrong file uploaded:** submit a corrected file and note in your statement which submission it replaces.
-- **Dispute already resolved:** new evidence cannot change a settled trade; raise the concern with the pilot coordinator.
-- **No video available:** photos, documents, and a written statement are still accepted.
-- **File too large or unsupported format:** convert to an accepted format above before retrying.
-
-### 5. Privacy and safety
-
-- Do not include recovery phrases, private keys, passwords, API tokens, or wallet secrets in any evidence or statement.
-- Avoid capturing unrelated people, personal phone numbers, or home addresses; blur or crop where possible.
-- Share only the minimum personal data needed to describe the dispute.
-- Report suspected secret exposure per [SECURITY.md](./SECURITY.md).
+---
