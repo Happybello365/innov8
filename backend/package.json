@@ -7,6 +7,7 @@
     "build": "npx prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "jest --config jest.config.js --forceExit --detectOpenHandles",
+    "test:tenant-isolation": "jest --config jest.config.js --forceExit --detectOpenHandles --testPathPattern tenant-isolation",
     "lint": "eslint src/",
     "postinstall": "npx prisma generate",
     "mutation": "stryker run stryker.money-math.config.json",
