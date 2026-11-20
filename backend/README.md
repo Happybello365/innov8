@@ -170,6 +170,74 @@ On graduation the cooperative moves to standard onboarding with production crede
 provisioned by the Amana team. Graduation status and any exceptions are recorded by the
 Amana team, not in this repository.
 
+## Dispute Participant Evidence Guide
+
+This guide explains what evidence buyers, sellers, and drivers may submit when a trade is
+disputed, the accepted formats, and how to submit it. It is documentation only and does not
+change application behavior. Evidence is attached to the trade's dispute record; funds stay
+locked under the agreed loss-sharing ratio until the dispute is resolved.
+
+### Who can submit evidence
+
+- **Buyer** — the party funding the escrow.
+- **Seller** — the party supplying the commodity.
+- **Driver** — the party transporting the commodity and completing Proof-of-Delivery.
+
+Only participants on the disputed trade may submit evidence for it. Submissions from other
+accounts are rejected.
+
+### What to submit
+
+**Buyer**
+
+- Photos or video of the goods as received, including packaging and any damage.
+- The delivery receipt or waybill showing date, quantity, and condition on arrival.
+- Chat or order records showing the agreed quantity, quality, and delivery terms.
+
+**Seller**
+
+- Photos or video of the goods at loading, showing quantity and condition before transit.
+- The weighbridge ticket, invoice, or dispatch note for the shipment.
+- Records of the agreed trade terms and any handover confirmation to the driver.
+
+**Driver**
+
+- Proof-of-Delivery video showing the goods and the buyer at handover.
+- Photos of the vehicle, load, and any transit incident (accident, spoilage, delay).
+- Trip records such as waybills, timestamps, and route or checkpoint notes.
+
+### Accepted formats
+
+- Images: JPEG or PNG.
+- Video: MP4 or MOV.
+- Documents: PDF.
+- Keep each file reasonably small and legible; blur or redact anything not needed to
+  support the claim.
+
+### How to submit
+
+1. Open the disputed trade in the app and select **Submit evidence**.
+2. Choose your role (buyer, seller, or driver) and the evidence category.
+3. Upload the files and add a short, factual description with dates and quantities.
+4. Submit before the dispute response window closes; late evidence may not be considered.
+5. Confirm the upload succeeded — a failed upload is not recorded and must be retried.
+
+### Edge cases and failure states
+
+- **Upload fails or times out** — retry; nothing is recorded until the upload completes.
+- **Unsupported or oversized file** — the submission is rejected with a reason; convert or
+  trim the file and try again.
+- **Window closed** — new evidence is rejected; contact pilot support with the trade ID.
+- **Duplicate submission** — resubmitting the same file replaces nothing; add only new evidence.
+
+### Privacy and safety
+
+- Never submit secret keys, passwords, API tokens, or full bank/card numbers.
+- Redact national IDs, phone numbers, and addresses that are not needed to support the claim.
+- Do not post evidence in public issues or chat; use the in-app dispute flow or the private
+  escalation channel.
+- When contacting support, include the trade ID and timestamps — never secrets or PII.
+
 ## Notes
 
 - `prisma/` contains schema and seed logic for the backend database.

@@ -171,17 +171,68 @@ Do not share recovery phrases with anyone, including innov8 staff. Support will 
 
 For step-by-step testnet wallet creation, funding, network selection, and reset procedures, see the [Stellar Testnet Pilot Wallet Guide](./docs/stellar-testnet-pilot-wallet.md).
 
-### 4. Funding
+---
 
-1. The innov8 team funds the cooperative's pilot wallet with test cNGN/stablecoins on the pilot network.
-2. Cooperatives confirm the balance in the frontend before starting a trade.
-3. If a balance is missing, contact the pilot coordinator with the public wallet address only — never share the recovery phrase.
+## ⚖️ Dispute Participant Evidence Guide
 
-### 5. Support
+This guide explains what evidence buyers, sellers, and drivers may submit when a trade is disputed, the accepted formats, and how to submit it. It is documentation only and does not change application, contract, or configuration behavior. Mediators review submitted evidence against the agreed `Loss_Ratio` and the trade manifest before settlement.
 
-- Report issues through the pilot support channel with the trade ID and public wallet address.
-- For suspected security incidents, follow [SECURITY.md](./SECURITY.md).
+### 1. Who submits what
 
-### 6. Graduation
+**Buyers** may submit:
 
-Cooperatives graduate from the pilot once they have completed the agreed number of trades without unresolved disputes and have confirmed operational readiness for mainnet.
+- Proof-of-Delivery (PoD) video showing the goods on arrival, including any damage, shortage, or spoilage.
+- Photos of the delivered goods, packaging, and seals.
+- The delivery note or waybill signed at handover.
+- A short written statement describing the issue and the expected outcome.
+
+**Sellers** may submit:
+
+- Dispatch photos or video showing goods and packaging in good condition before loading.
+- The vehicle manifest (driver name, phone number, plate number) recorded at dispatch.
+- Weight, grade, or quality records captured at loading.
+- A short written statement describing the dispatch conditions and any agreed handling instructions.
+
+**Drivers** may submit:
+
+- Photos or video of the vehicle, cargo, and seals at pickup and at delivery.
+- Transit notes covering delays, accidents, theft, or route changes.
+- Handover confirmation showing who received the goods and when.
+- A short written statement describing what happened during transit.
+
+Only submit evidence for trades you are a party to. Do not submit evidence on behalf of another participant.
+
+### 2. Accepted formats
+
+- **Video:** MP4 or MOV, kept as short as possible while still showing the relevant goods and context.
+- **Images:** JPG or PNG, clear and in focus.
+- **Documents:** PDF for delivery notes, waybills, and manifests.
+- **Text:** A plain written statement in the dispute form.
+
+Video and image evidence is stored on IPFS via Pinata; only the resulting content reference and trade metadata are kept off-chain. Keep each file reasonably sized so uploads complete on field connections.
+
+### 3. How to submit
+
+1. Open the disputed trade in the frontend or mobile app.
+2. Select **Submit evidence** on the dispute.
+3. Choose the evidence type (video, image, document, or statement).
+4. Upload the file or enter your written statement.
+5. Confirm the submission and wait for the upload to finish before closing the app.
+6. Record the confirmation shown after upload; share it with the pilot coordinator if you need support.
+
+Submit evidence as soon as the issue is identified and before the dispute review closes. Late evidence may not be considered.
+
+### 4. Edge cases and failure states
+
+- **Upload fails or times out:** retry on a stable connection. If it keeps failing, contact the pilot coordinator and keep the original file.
+- **Wrong file uploaded:** submit a corrected file and note in your statement which submission it replaces.
+- **Dispute already resolved:** new evidence cannot change a settled trade; raise the concern with the pilot coordinator.
+- **No video available:** photos, documents, and a written statement are still accepted.
+- **File too large or unsupported format:** convert to an accepted format above before retrying.
+
+### 5. Privacy and safety
+
+- Do not include recovery phrases, private keys, passwords, API tokens, or wallet secrets in any evidence or statement.
+- Avoid capturing unrelated people, personal phone numbers, or home addresses; blur or crop where possible.
+- Share only the minimum personal data needed to describe the dispute.
+- Report suspected secret exposure per [SECURITY.md](./SECURITY.md).
