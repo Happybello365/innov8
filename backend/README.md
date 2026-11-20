@@ -139,6 +139,9 @@ in a partially configured state.
 Loss of a wallet key is handled by re-onboarding a new public address; the old address is
 revoked. Never share secret keys in tickets, chat, or pull requests.
 
+See the [Stellar Testnet Pilot Wallet Guide](./docs/stellar-testnet-pilot-wallet.md) for
+step-by-step wallet creation, funding, network selection, and reset procedures.
+
 ### 4. Funding
 
 - Pilot escrows are funded in cNGN/stablecoins on Stellar; buyers may pay in local currency

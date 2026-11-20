@@ -169,73 +169,19 @@ Copy the relevant `.env.example` files as described in the setup sections above.
 
 Do not share recovery phrases with anyone, including innov8 staff. Support will never ask for a recovery phrase or private key.
 
+For step-by-step testnet wallet creation, funding, network selection, and reset procedures, see the [Stellar Testnet Pilot Wallet Guide](./docs/stellar-testnet-pilot-wallet.md).
+
 ### 4. Funding
 
 1. The innov8 team funds the cooperative's pilot wallet with test cNGN/stablecoins on the pilot network.
-2. Cooperatives confirm the balance in the frontend before creating the first trade.
-3. Trades lock funds in escrow; the 1% platform fee is deducted automatically on successful settlement.
-4. If a trade is disputed, funds are distributed per the agreed `Loss_Ratio` after mediator review.
-
-Pilot funds are for testing only and carry no real-world value. Do not send mainnet assets to pilot wallets.
+2. Cooperatives confirm the balance in the frontend before starting a trade.
+3. If a balance is missing, contact the pilot coordinator with the public wallet address only — never share the recovery phrase.
 
 ### 5. Support
 
-- **Security issues:** report privately via [SECURITY.md](./SECURITY.md); do not open public issues for vulnerabilities.
-- **Operational issues:** contact the assigned innov8 pilot coordinator.
-- **Disputes:** follow the mediator flow described in "How It Works" above; evidence is stored on IPFS.
-- **Incidents:** reference the [Threat Model](./docs/threat-model.md) and [Secrets Policy & Rotation](./docs/secrets-policy.md) where relevant.
-
-When reporting an issue, include the trade ID, timestamps, and correlation IDs from the tracing setup — never include recovery phrases, private keys, or personal data.
+- Report issues through the pilot support channel with the trade ID and public wallet address.
+- For suspected security incidents, follow [SECURITY.md](./SECURITY.md).
 
 ### 6. Graduation
 
-A cooperative graduates from the pilot when it has:
-
-- Completed a minimum number of successful trades agreed with the innov8 team.
-- Resolved any disputes through the mediator flow without unresolved escalations.
-- Maintained secure wallet practices with no reported secret exposure.
-- Confirmed readiness to move to mainnet with the innov8 team.
-
-Graduation is confirmed in writing by the innov8 team. After graduation, the cooperative operates on mainnet with real cNGN/stablecoins and remains subject to the same security and support policies.
-
----
-
-## 🔍 Distributed Tracing
-
-Amana includes comprehensive distributed tracing with OpenTelemetry for end-to-end request visibility and faster incident triage.
-
-### Features
-
-- **Correlation IDs**: Unique identifiers spanning frontend-backend requests
-- **Request Tracing**: Complete request lifecycle tracking
-- **Service Integration**: Automatic tracing for external services (IPFS, Stellar)
-- **Observability**: Jaeger, Zipkin, and Prometheus integration
-
-### Quick Start
-
-1. Configure tracing environment variables (see `backend/.env.tracing.example`)
-2. Start Jaeger for trace visualization: `docker run -p 16686:16686 jaegertracing/all-in-one`
-3. View traces at `http://localhost:16686`
-4. Check metrics at `http://localhost:9464/metrics`
-
-### Documentation
-
-See [DISTRIBUTED_TRACING_GUIDE.md](./DISTRIBUTED_TRACING_GUIDE.md) for detailed setup and usage instructions.
-
----
-
-## 📐 Architecture Decision Records
-
-Key architectural decisions are documented as ADRs in [`docs/adr/`](./docs/adr):
-
-- [ADR-001: Stellar Path Payment Architecture](./docs/adr/ADR-001-stellar-path-payment-architecture.md)
-- [ADR-002: Escrow Loss-Sharing Model](./docs/adr/ADR-002-escrow-loss-sharing-model.md)
-- [ADR-003: Off-chain vs. On-chain Data Partitioning](./docs/adr/ADR-003-offchain-vs-onchain-data-partitioning.md)
-- [ADR-004: Idempotency and Retry Strategy](./docs/adr/ADR-004-idempotency-and-retry-strategy.md)
-- [ADR-005: Frontend State Management](./docs/adr/ADR-005-frontend-state-management.md)
-
-## 🔐 Security & Operations
-
-- [Security Policy](./SECURITY.md) — privately report vulnerabilities through GitHub's private vulnerability reporting.
-- [Threat Model](./docs/threat-model.md) — reviewed quarterly and on trigger events; see §8 for cadence/ownership and `docs/threat-model-review-checklist.md` for the reviewer checklist.
-- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders
+Cooperatives graduate from the pilot once they have completed the agreed number of trades without unresolved disputes and have confirmed operational readiness for mainnet.
