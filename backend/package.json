@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "test": "jest --config jest.config.js --forceExit --detectOpenHandles",
     "test:tenant-isolation": "jest --config jest.config.js --forceExit --detectOpenHandles --testPathPattern tenant-isolation",
+    "test:evidence-manifest": "jest --config jest.config.js --forceExit --detectOpenHandles --testPathPattern evidence-manifest",
     "lint": "eslint src/",
     "postinstall": "npx prisma generate",
     "mutation": "stryker run stryker.money-math.config.json",
