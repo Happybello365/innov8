@@ -104,6 +104,12 @@ Backward-compatibility guarantees, the deprecation lifecycle, sunset timelines,
 and client migration rules are documented in
 [`docs/api-versioning.md`](docs/api-versioning.md).
 
+## Evidence Data Lifecycle
+
+How trade evidence (Proof-of-Delivery videos, photos, documents) is collected,
+pinned to IPFS via Pinata, retained, deleted, and shared during disputes is
+documented in [`docs/evidence-data-lifecycle.md`](docs/evidence-data-lifecycle.md).
+
 ## Notes
 
 - `prisma/` contains schema and seed logic for the backend database.
