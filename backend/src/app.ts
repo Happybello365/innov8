@@ -20,6 +20,7 @@ import { webhooksRoutes } from "./routes/webhooks.routes";
 import { inboundWebhooksRoutes } from "./routes/webhooks.inbound.routes";
 import { captureRawBody } from "./middleware/webhookSignature.middleware";
 import { createAdminDlqRouter } from "./routes/admin.dlq.routes";
+import { createAdminWalletChallengeRouter } from "./routes/admin.walletChallenge.routes";
 import { createAdminReportRouter } from "./routes/admin.report.routes";
 import { adminFeatureGate } from "./middleware/adminFeatureGate.middleware";
 import { env } from "./config/env";
@@ -170,6 +171,9 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
   app.use(adminFeatureGate, csrfProtection, createAdminDlqRouter());
   // Admin cross-entity reporting: POST /api/admin/reports/query, /api/admin/reports/saved
   app.use(adminFeatureGate, csrfProtection, createAdminReportRouter());
+
+  // Admin wallet challenge cleanup: POST /api/admin/wallet-challenges/cleanup
+  app.use(adminFeatureGate, csrfProtection, createAdminWalletChallengeRouter());
 
   // Error handler is registered last so it catches errors from all routes,
   // including any routes added to the app after createApp() returns.

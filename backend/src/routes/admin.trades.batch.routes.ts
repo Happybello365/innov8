@@ -16,6 +16,8 @@ import { RATE_LIMIT_CONFIG } from "../config/rateLimit";
 const tradeStatusUpdateSchema = z.object({
   tradeId: z.string().min(1, "tradeId is required"),
   status: z.nativeEnum(TradeStatus),
+  /** Optional admin-supplied reason for audit log and sensitive transitions. */
+  reason: z.string().max(500).optional(),
 });
 
 const batchStatusBodySchema = z.object({
@@ -23,6 +25,11 @@ const batchStatusBodySchema = z.object({
     .array(tradeStatusUpdateSchema)
     .min(1, "At least one update is required")
     .max(100, "Maximum 100 updates per request"),
+  /**
+   * When true, validate all transitions and return a preview result without
+   * committing any changes. Useful for reviewing a large batch before applying.
+   */
+  dryRun: z.boolean().default(false),
 });
 
 const VALID_TRANSITIONS: Record<TradeStatus, TradeStatus[]> = {
@@ -43,6 +50,15 @@ const VALID_TRANSITIONS: Record<TradeStatus, TradeStatus[]> = {
   [TradeStatus.CANCELLED]: [],
   [TradeStatus.EXPIRED]: [],
 };
+
+/**
+ * Statuses whose transitions require an explicit reason from the admin.
+ * Transitions to these targets without a reason string are rejected.
+ */
+const REASON_REQUIRED_TARGETS = new Set<TradeStatus>([
+  TradeStatus.CANCELLED,
+  TradeStatus.COMPLETED,
+]);
 
 function isValidTransition(from: TradeStatus, to: TradeStatus): boolean {
   return VALID_TRANSITIONS[from]?.includes(to) ?? false;
@@ -69,14 +85,24 @@ export function createAdminTradeBatchRouter(
     validateRequest({ body: batchStatusBodySchema }),
     async (req: AuthRequest, res: Response, next) => {
       try {
-        const { updates } = req.body as {
-          updates: { tradeId: string; status: TradeStatus }[];
+        const { updates, dryRun } = req.body as {
+          updates: { tradeId: string; status: TradeStatus; reason?: string }[];
+          dryRun: boolean;
         };
 
         const succeeded: string[] = [];
         const failed: { tradeId: string; reason: string }[] = [];
 
-        for (const { tradeId, status: targetStatus } of updates) {
+        for (const { tradeId, status: targetStatus, reason } of updates) {
+          // Guardrail: require an explicit reason for sensitive target statuses.
+          if (REASON_REQUIRED_TARGETS.has(targetStatus) && (!reason || reason.trim().length === 0)) {
+            failed.push({
+              tradeId,
+              reason: `A reason is required when setting status to ${targetStatus}`,
+            });
+            continue;
+          }
+
           const trade = await prisma.trade.findFirst({
             where: {
               OR: [
@@ -102,6 +128,12 @@ export function createAdminTradeBatchRouter(
             continue;
           }
 
+          // In dry-run mode, stop here — do not persist anything.
+          if (dryRun) {
+            succeeded.push(trade.tradeId);
+            continue;
+          }
+
           const result = await prisma.trade.updateMany({
             where: { tradeId: trade.tradeId, version: trade.version },
             data: { status: targetStatus, version: { increment: 1 } },
@@ -117,14 +149,15 @@ export function createAdminTradeBatchRouter(
           }
         }
 
-        // Admin audit: record which admin performed batch trade status updates
-        // Log before responding so the audit record isn't lost if the response write fails.
+        // Admin audit: record which admin performed batch trade status updates.
+        // Skip persisting to DB in dry-run mode; still emit a log for visibility.
         const traceCtx = getTraceContext();
         appLogger.info(
           {
             audit: true,
             eventType: "BATCH_TRADE_STATUS_UPDATE",
             actionName: "admin.trades.batch.status",
+            dryRun,
             totalUpdates: updates.length,
             succeededCount: succeeded.length,
             failedCount: failed.length,
@@ -135,19 +168,21 @@ export function createAdminTradeBatchRouter(
             spanId: traceCtx?.spanId,
             timestamp: new Date().toISOString(),
           },
-          `[AdminAudit] Batch trade status update: ${succeeded.length} succeeded, ${failed.length} failed by ${req.user?.walletAddress}`,
+          `[AdminAudit] Batch trade status update${dryRun ? " (dry-run)" : ""}: ${succeeded.length} succeeded, ${failed.length} failed by ${req.user?.walletAddress}`,
         );
 
-        await prisma.adminActionAudit.create({
-          data: {
-            action: "TRADE_BATCH_STATUS_UPDATE",
-            actorAddress: req.user!.walletAddress,
-            targetReference: `${succeeded.length}/${updates.length} succeeded`,
-            note: JSON.stringify({ succeeded, failed }),
-          },
-        });
+        if (!dryRun) {
+          await prisma.adminActionAudit.create({
+            data: {
+              action: "TRADE_BATCH_STATUS_UPDATE",
+              actorAddress: req.user!.walletAddress,
+              targetReference: `${succeeded.length}/${updates.length} succeeded`,
+              note: JSON.stringify({ succeeded, failed }),
+            },
+          });
+        }
 
-        res.status(200).json({ succeeded, failed });
+        res.status(200).json({ succeeded, failed, dryRun });
       } catch (error) {
         next(error);
       }

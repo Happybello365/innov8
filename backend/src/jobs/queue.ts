@@ -165,3 +165,22 @@ export const treasuryReconciliationQueue = new Queue<TreasuryReconciliationJobDa
   connection: createQueueConnection(),
   defaultJobOptions,
 });
+
+export interface WalletChallengeCleanupJobData {
+  triggeredBy?: string;
+}
+
+export const walletChallengeCleanupQueue = new Queue<WalletChallengeCleanupJobData>('wallet-challenge-cleanup', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export interface AccountDeletionExportJobData {
+  walletAddress: string;
+  requestedBy?: string;
+}
+
+export const accountDeletionExportQueue = new Queue<AccountDeletionExportJobData>('account-deletion-export', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
