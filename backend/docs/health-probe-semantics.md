@@ -182,3 +182,71 @@ pods remain in rotation during external brownouts and degrade gracefully.
 The `/health/detail` endpoint retains full correlation ID support via
 `correlationIdMiddleware` registered in `app.ts`. All health responses include
 the `X-Correlation-ID` header for distributed tracing.
+
+---
+
+## Canary Deployment Traffic Controls (Issue #561)
+
+Canary releases for the backend and frontend shift traffic in **stages** and
+**automatically roll back** when health or error-rate criteria are breached.
+The canary relies on the probe tiers above: a canary pod that fails
+`/health/ready` is never added to the traffic split, and a canary that starts
+failing readiness mid-rollout is drained before the next stage.
+
+### Staged traffic shifting
+
+Traffic is shifted through a fixed ladder. Each stage holds for
+`CANARY_STAGE_DURATION_SECONDS` before advancing, and only advances when the
+canary passes the rollback criteria for the whole hold window.
+
+| Stage | Backend weight | Frontend weight |
+|-------|----------------|-----------------|
+| 0     | 0%             | 0%              |
+| 1     | 5%             | 10%             |
+| 2     | 25%            | 25%             |
+| 3     | 50%            | 50%             |
+| 4     | 100%           | 100%            |
+
+Weights are applied at the ingress/service mesh layer (e.g. an Istio
+`VirtualService` or an nginx `split_clients` map). The canary is addressed by
+its own Service (`backend-canary`, `frontend-canary`) so the stable Service is
+never mutated until the final stage.
+
+### Automated rollback criteria
+
+A stage is aborted (traffic returns to 0% for the canary and the rollout is
+marked failed) when **any** of the following holds during the hold window:
+
+| Signal                         | Threshold (default)                  |
+|--------------------------------|--------------------------------------|
+| HTTP 5xx error rate            | > `CANARY_MAX_ERROR_RATE` (1%)       |
+| p95 latency                    | > `CANARY_MAX_P95_LATENCY_MS` (800)  |
+| Readiness failures             | any canary pod not ready > 30 s      |
+| Liveness restarts              | > 0 restarts during the stage        |
+
+Thresholds are evaluated against the canary cohort only, so a pre-existing
+stable-version issue does not trigger a false rollback. On abort the previous
+stable revision keeps 100% of traffic; no manual step is required.
+
+### Configuration
+
+All values are optional and read from the environment (see
+`.env.example`); defaults are safe for production.
+
+| Variable                          | Default | Description                                   |
+|-----------------------------------|---------|-----------------------------------------------|
+| `CANARY_ENABLED`                  | `false` | Master switch for staged rollouts             |
+| `CANARY_STAGE_DURATION_SECONDS`   | `300`   | Hold time per stage before advancing          |
+| `CANARY_MAX_ERROR_RATE`           | `0.01`  | 5xx rate (0–1) that triggers rollback         |
+| `CANARY_MAX_P95_LATENCY_MS`       | `800`   | p95 latency ceiling for the canary cohort     |
+
+### Failure states
+
+- **Canary never becomes ready:** rollout aborts at stage 0; stable keeps 100%.
+- **Metrics unavailable:** the stage does **not** advance (fail-closed) and the
+  rollout is aborted after one hold window.
+- **Partial stage failure:** traffic is reset to 0% for the canary before the
+  failed revision is scaled down, so no in-flight requests are dropped.
+
+Rollout logs record only stage index, weights, and aggregate metrics — never
+request bodies, headers, or user identifiers — so no secrets or PII are emitted.

@@ -2,6 +2,27 @@ name: Staging Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      canary_percent:
+        description: 'Initial canary traffic percentage (1-100)'
+        required: false
+        default: '10'
+      canary_step_percent:
+        description: 'Traffic increment per stage (1-100)'
+        required: false
+        default: '25'
+      canary_interval_seconds:
+        description: 'Seconds to observe each stage before promoting'
+        required: false
+        default: '30'
+      canary_max_error_rate:
+        description: 'Rollback if error rate (0-1) exceeds this threshold'
+        required: false
+        default: '0.05'
+      canary_max_latency_ms:
+        description: 'Rollback if p95 latency (ms) exceeds this threshold'
+        required: false
+        default: '1500'
   push:
     branches:
       - develop
@@ -10,6 +31,7 @@ on:
       - 'scripts/staging-up.sh'
       - 'scripts/staging-validate.sh'
       - 'scripts/staging-admin-smoke-test.sh'
+      - 'scripts/staging-canary.sh'
       - 'scripts/grafana-deploy-annotation.sh'
       - 'scripts/migrate-*.sh'
       - 'backend/**'
@@ -23,6 +45,7 @@ on:
       - 'scripts/staging-up.sh'
       - 'scripts/staging-validate.sh'
       - 'scripts/staging-admin-smoke-test.sh'
+      - 'scripts/staging-canary.sh'
       - 'scripts/grafana-deploy-annotation.sh'
       - 'scripts/migrate-*.sh'
       - 'backend/**'
@@ -37,6 +60,12 @@ jobs:
   staging-deploy:
     name: Deploy & Validate Staging
     runs-on: ubuntu-latest
+    env:
+      CANARY_PERCENT: ${{ github.event.inputs.canary_percent || '10' }}
+      CANARY_STEP_PERCENT: ${{ github.event.inputs.canary_step_percent || '25' }}
+      CANARY_INTERVAL_SECONDS: ${{ github.event.inputs.canary_interval_seconds || '30' }}
+      CANARY_MAX_ERROR_RATE: ${{ github.event.inputs.canary_max_error_rate || '0.05' }}
+      CANARY_MAX_LATENCY_MS: ${{ github.event.inputs.canary_max_latency_ms || '1500' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -67,7 +96,7 @@ jobs:
 
       - name: Start staging stack
         run: |
-          chmod +x ./scripts/staging-up.sh ./scripts/staging-validate.sh ./scripts/staging-admin-smoke-test.sh
+          chmod +x ./scripts/staging-up.sh ./scripts/staging-validate.sh ./scripts/staging-admin-smoke-test.sh ./scripts/staging-canary.sh
           ./scripts/staging-up.sh
         timeout-minutes: 10
 
@@ -78,6 +107,17 @@ jobs:
       - name: Run Staging Admin Smoke Test
         run: ./scripts/staging-admin-smoke-test.sh
         timeout-minutes: 5
+
+      - name: Canary traffic shift (backend + frontend)
+        id: canary
+        run: |
+          ./scripts/staging-canary.sh \
+            --start "$CANARY_PERCENT" \
+            --step "$CANARY_STEP_PERCENT" \
+            --interval "$CANARY_INTERVAL_SECONDS" \
+            --max-error-rate "$CANARY_MAX_ERROR_RATE" \
+            --max-latency-ms "$CANARY_MAX_LATENCY_MS"
+        timeout-minutes: 15
 
       - name: Annotate Grafana golden-signals dashboard with this deploy
         if: success()
@@ -94,10 +134,11 @@ jobs:
       - name: Notify on Staging Validation or Smoke Test Failure
         if: failure()
         run: |
-          echo "::error title=Staging Deployment Failure::Staging validation or admin route smoke test failed."
+          echo "::error title=Staging Deployment Failure::Staging validation, admin route smoke test, or canary promotion failed."
           {
             echo "### 🚨 Staging Deployment Failure Notification"
-            echo "The staging deployment or admin route smoke test failed during automated validation."
+            echo "The staging deployment, admin route smoke test, or canary traffic shift failed during automated validation."
+            echo "If the canary stage failed, traffic was automatically rolled back to the previous stable release."
             echo "Please review workflow logs and ensure admin endpoints and staging services are functioning correctly."
           } >> "$GITHUB_STEP_SUMMARY"
 
