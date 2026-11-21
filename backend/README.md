@@ -97,6 +97,37 @@ npx jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatte
 CI runs this suite as a separate named step (`Admin auth regression suite`) so any
 regression in admin authentication causes CI to fail independently of the full test suite.
 
+## Database Backup Verification
+
+Backups must be encrypted at rest, restorable, and covered by documented retention
+controls. The verification procedure below is the operational runbook for confirming
+those guarantees. It is intentionally fail-closed: if encryption metadata is missing
+or invalid, or a restore check cannot be completed, treat the backup as unusable and
+escalate rather than assuming it is safe.
+
+### Encryption verification
+
+1. Confirm the backup artifact reports an encryption algorithm and key identifier
+   (e.g. `AES-256-GCM` + KMS key id). Missing or unrecognized metadata is a failure.
+2. Confirm the artifact is not stored in plaintext (no unencrypted dumps in the bucket).
+3. Confirm the encryption key is managed by the KMS/secret store and is not embedded
+   in the artifact or logs.
+
+### Restorability verification
+
+1. Restore the latest backup into an isolated, non-production database.
+2. Run a schema + row-count sanity check against expected tables.
+3. Record the result (pass/fail, timestamp, backup id) without logging row contents,
+   credentials, or PII.
+4. On failure, do not promote the backup; open an incident and retry the restore check.
+
+### Retention controls
+
+- Retention windows are defined per environment and enforced by the storage lifecycle
+  policy; do not delete backups manually outside the documented policy.
+- Verification results are retained alongside the backup metadata for audit.
+- Any change to retention or encryption settings requires a documented review.
+
 ## Notes
 
 - `prisma/` contains schema and seed logic for the backend database.
