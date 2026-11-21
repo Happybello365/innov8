@@ -9,6 +9,12 @@ on:
 # This workflow runs the Detox smoke suite on a nightly schedule and before
 # production releases. It mirrors the mobile-e2e-ios / mobile-e2e-android
 # jobs in ci.yml but always runs regardless of path filters.
+#
+# It also runs the mobile visual regression smoke suite (#537): core screens
+# are captured across representative device sizes and light/dark themes and
+# compared against committed baselines. Baselines live under
+# mobile/e2e/visual/baselines and are refreshed with
+# `pnpm test:visual:update` (see mobile/README.md).
 
 jobs:
   mobile-e2e-ios-nightly:
@@ -69,12 +75,19 @@ jobs:
         env:
           CI: true
 
+      - name: Run visual regression smoke suite (iOS)
+        run: pnpm test:visual:ios
+        env:
+          CI: true
+
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: nightly-detox-ios-${{ github.run_id }}
-          path: mobile/.detox-artifacts/
+          path: |
+            mobile/.detox-artifacts/
+            mobile/e2e/visual/artifacts/
           retention-days: 14
 
   mobile-e2e-android-nightly:
@@ -152,10 +165,24 @@ jobs:
         env:
           CI: true
 
+      - name: Start emulator and run visual regression smoke suite
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d  # v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          avd-name: Pixel_6_API_34
+          script: cd mobile && pnpm test:visual:android
+        env:
+          CI: true
+
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: nightly-detox-android-${{ github.run_id }}
-          path: mobile/.detox-artifacts/
+          path: |
+            mobile/.detox-artifacts/
+            mobile/e2e/visual/artifacts/
           retention-days: 14
