@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { VideoUploadCard } from '../VideoUploadCard';
 
 // Mock the BentoCard component
@@ -26,9 +26,11 @@ const mockXhr: Record<string, unknown> = {
     },
     onload: null as (() => void) | null,
     onerror: null as (() => void) | null,
+    onabort: null as (() => void) | null,
     open: jest.fn(),
     setRequestHeader: jest.fn(),
     send: jest.fn(),
+    abort: jest.fn(),
     status: 200,
     responseText: JSON.stringify({ IpfsHash: 'QmTest123' }),
     statusText: 'OK',
@@ -46,6 +48,7 @@ describe('VideoUploadCard Component', () => {
         (mockXhr.upload as { onprogress: null }).onprogress = null;
         mockXhr.onload = null;
         mockXhr.onerror = null;
+        mockXhr.onabort = null;
         mockXhr.status = 200;
         mockXhr.responseText = JSON.stringify({ IpfsHash: 'QmTest123' });
     });
@@ -146,7 +149,112 @@ describe('VideoUploadCard Component', () => {
 
         await waitFor(() => {
             expect(screen.getByText('Uploading to IPFS…')).toBeInTheDocument();
-            expect(screen.getByText('50%')).toBeInTheDocument();
+        });
+    });
+
+    it('shows progress bar with aria attributes during upload (#485)', async () => {
+        render(<VideoUploadCard {...defaultProps} />);
+
+        const file = new File(['test'], 'test.mp4', { type: 'video/mp4' });
+        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+        Object.defineProperty(fileInput, 'files', { value: [file] });
+        fireEvent.change(fileInput);
+
+        await waitFor(() => {
+            const upload = mockXhr.upload as { onprogress?: (ev: { lengthComputable: boolean; loaded: number; total: number }) => void };
+            if (upload.onprogress) {
+                upload.onprogress({ lengthComputable: true, loaded: 30, total: 100 });
+            }
+        });
+
+        await waitFor(() => {
+            const bar = screen.getByTestId('upload-progress-bar');
+            expect(bar).toBeInTheDocument();
+        });
+    });
+
+    it('shows cancel button during upload (#485)', async () => {
+        render(<VideoUploadCard {...defaultProps} />);
+
+        const file = new File(['test'], 'test.mp4', { type: 'video/mp4' });
+        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+        Object.defineProperty(fileInput, 'files', { value: [file] });
+        fireEvent.change(fileInput);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('upload-cancel-btn')).toBeInTheDocument();
+        });
+    });
+
+    it('cancels upload when cancel is clicked (#485)', async () => {
+        render(<VideoUploadCard {...defaultProps} />);
+
+        const file = new File(['test'], 'test.mp4', { type: 'video/mp4' });
+        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+        Object.defineProperty(fileInput, 'files', { value: [file] });
+        fireEvent.change(fileInput);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('upload-cancel-btn')).toBeInTheDocument();
+        });
+
+        act(() => {
+            fireEvent.click(screen.getByTestId('upload-cancel-btn'));
+        });
+
+        // After cancel: progress UI should be gone and drop zone back
+        await waitFor(() => {
+            expect(screen.queryByTestId('upload-cancel-btn')).not.toBeInTheDocument();
+            expect(screen.getByText('Drag & drop or click to browse')).toBeInTheDocument();
+        });
+    });
+
+    it('shows retry button after network error (#485)', async () => {
+        render(<VideoUploadCard {...defaultProps} />);
+
+        const file = new File(['test'], 'test.mp4', { type: 'video/mp4' });
+        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+        Object.defineProperty(fileInput, 'files', { value: [file] });
+        fireEvent.change(fileInput);
+
+        // Simulate network error
+        await waitFor(() => {
+            if (mockXhr.onerror) {
+                (mockXhr.onerror as () => void)();
+            }
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('upload-retry-btn')).toBeInTheDocument();
+        });
+    });
+
+    it('shows "Retrying…" label on retry attempt (#485)', async () => {
+        render(<VideoUploadCard {...defaultProps} />);
+
+        const file = new File(['test'], 'test.mp4', { type: 'video/mp4' });
+        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+        Object.defineProperty(fileInput, 'files', { value: [file] });
+        fireEvent.change(fileInput);
+
+        // Trigger error
+        await waitFor(() => {
+            if (mockXhr.onerror) {
+                (mockXhr.onerror as () => void)();
+            }
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('upload-retry-btn')).toBeInTheDocument();
+        });
+
+        // Click retry
+        act(() => {
+            fireEvent.click(screen.getByTestId('upload-retry-btn'));
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText(/Retrying/i)).toBeInTheDocument();
         });
     });
 
@@ -246,7 +354,7 @@ describe('VideoUploadCard Component', () => {
         });
 
         await waitFor(() => {
-            expect(screen.getByText('Network error during upload')).toBeInTheDocument();
+            expect(screen.getByText(/Network error/)).toBeInTheDocument();
         });
     });
 

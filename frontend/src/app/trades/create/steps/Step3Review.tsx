@@ -15,6 +15,7 @@ import { useToast, TOAST_CONTRACT } from "@/hooks/useToast";
 import { shouldDedup, registerAction } from "@/lib/actionDedup";
 import { generateIdempotencyKey } from "@/lib/idempotency";
 import { saveTemplate } from "@/lib/tradeTemplates";
+import { useWalletGuard } from "@/hooks/useWalletGuard";
 
 type Row = { label: string; value: string };
 
@@ -137,6 +138,12 @@ export default function Step3Review() {
   const [tradeId, setTradeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+  // #484 — detect wallet disconnection mid-submit to avoid duplicate transactions.
+  const { disconnectedMidSubmit, clearDisconnectFlag } = useWalletGuard({
+    isSubmitting: loading,
+    isWalletConnected,
+  });
 
   const qty = parseFloat(data.quantity);
   const price = parseFloat(data.pricePerUnit);
@@ -375,6 +382,27 @@ export default function Step3Review() {
         <p role="alert" aria-live="assertive" className="text-status-danger text-sm text-center bg-status-danger/10 border border-status-danger/30 rounded-lg px-4 py-3">
           <span className="mr-2">⚠</span>{error}
         </p>
+      )}
+      {/* #484 — wallet disconnected mid-submit: form state is preserved, user can reconnect and retry */}
+      {disconnectedMidSubmit && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm"
+        >
+          <p className="font-semibold text-amber-400">Wallet disconnected during submission</p>
+          <p className="mt-1 text-text-secondary">
+            Your wallet disconnected before the transaction was signed. No funds were moved and your
+            trade details are preserved. Reconnect your wallet and try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => clearDisconnectFlag()}
+            className="mt-2 text-xs underline text-amber-400 hover:text-amber-300"
+          >
+            Dismiss
+          </button>
+        </div>
       )}
       {pendingCount > 0 && (
         <div className="rounded-lg bg-status-warning/10 border border-status-warning/30 px-4 py-3 flex items-center justify-between">
