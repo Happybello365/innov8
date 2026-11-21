@@ -136,6 +136,45 @@ jobs:
             --max-latency-ms "$CANARY_MAX_LATENCY_MS"
         timeout-minutes: 15
 
+      - name: Record deployment provenance
+        if: success()
+        env:
+          PROVENANCE_COMMIT: ${{ github.sha }}
+          PROVENANCE_REF: ${{ github.ref_name }}
+          PROVENANCE_WORKFLOW: ${{ github.workflow }}
+          PROVENANCE_RUN_ID: ${{ github.run_id }}
+          PROVENANCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          PROVENANCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PROVENANCE_OPERATOR: ${{ github.actor }}
+          PROVENANCE_TRIGGER: ${{ github.event_name }}
+          PROVENANCE_IMAGE_DIGEST: ${{ env.IMAGE_DIGEST }}
+        run: |
+          # Resolve the artifact digest: prefer the explicitly promoted digest,
+          # otherwise fall back to the digest of the running backend image.
+          digest="$PROVENANCE_IMAGE_DIGEST"
+          if [ -z "$digest" ]; then
+            digest=$(docker compose --profile staging images --format '{{.Digest}}' backend 2>/dev/null | head -n1 || true)
+          fi
+          if [ -z "$digest" ]; then
+            digest="unknown"
+          fi
+
+          # Emit a structured, secret-free provenance record for audit logs.
+          provenance=$(jq -cn \
+            --arg commit "$PROVENANCE_COMMIT" \
+            --arg ref "$PROVENANCE_REF" \
+            --arg workflow "$PROVENANCE_WORKFLOW" \
+            --arg run_id "$PROVENANCE_RUN_ID" \
+            --arg run_attempt "$PROVENANCE_RUN_ATTEMPT" \
+            --arg run_url "$PROVENANCE_RUN_URL" \
+            --arg operator "$PROVENANCE_OPERATOR" \
+            --arg trigger "$PROVENANCE_TRIGGER" \
+            --arg digest "$digest" \
+            '{event:"deployment.provenance",environment:"staging",commit:$commit,ref:$ref,workflow:$workflow,run_id:$run_id,run_attempt:$run_attempt,run_url:$run_url,operator:$operator,trigger:$trigger,artifact_digest:$digest}')
+
+          echo "$provenance"
+          echo "$provenance" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Annotate Grafana golden-signals dashboard with this deploy
         if: success()
         continue-on-error: true
