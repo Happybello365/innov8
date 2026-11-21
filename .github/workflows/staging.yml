@@ -23,6 +23,10 @@ on:
         description: 'Rollback if p95 latency (ms) exceeds this threshold'
         required: false
         default: '1500'
+      image_digest:
+        description: 'Immutable image digest to promote (e.g. sha256:...). When set, this digest is promoted instead of a mutable tag.'
+        required: false
+        default: ''
   push:
     branches:
       - develop
@@ -66,9 +70,19 @@ jobs:
       CANARY_INTERVAL_SECONDS: ${{ github.event.inputs.canary_interval_seconds || '30' }}
       CANARY_MAX_ERROR_RATE: ${{ github.event.inputs.canary_max_error_rate || '0.05' }}
       CANARY_MAX_LATENCY_MS: ${{ github.event.inputs.canary_max_latency_ms || '1500' }}
+      IMAGE_DIGEST: ${{ github.event.inputs.image_digest || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Validate image digest input
+        if: ${{ env.IMAGE_DIGEST != '' }}
+        run: |
+          if ! printf '%s' "$IMAGE_DIGEST" | grep -Eq '^sha256:[a-f0-9]{64}$'; then
+            echo "::error title=Invalid image digest::IMAGE_DIGEST must match sha256:<64 hex chars>. Refusing to promote a mutable tag."
+            exit 1
+          fi
+          echo "Promoting immutable image digest: $IMAGE_DIGEST"
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
@@ -89,6 +103,9 @@ jobs:
           STAGING_DATABASE_URL=${{ secrets.STAGING_DATABASE_URL || 'postgresql://postgres:staging-password@localhost:5434/amana_staging' }}
           JWT_SECRET=${{ secrets.STAGING_JWT_SECRET || 'ci-staging-jwt-secret-placeholder-minimum-32' }}
           EOF
+          if [ -n "$IMAGE_DIGEST" ]; then
+            echo "STAGING_IMAGE_DIGEST=$IMAGE_DIGEST" >> .env.staging
+          fi
 
       - name: Install backend dependencies
         run: npm ci
@@ -127,6 +144,7 @@ jobs:
           GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
           DEPLOY_ENV: staging
           DEPLOY_REF: ${{ github.sha }}
+          DEPLOY_IMAGE_DIGEST: ${{ env.IMAGE_DIGEST }}
         run: |
           chmod +x ./scripts/grafana-deploy-annotation.sh
           ./scripts/grafana-deploy-annotation.sh

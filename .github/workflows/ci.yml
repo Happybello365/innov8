@@ -77,3 +77,63 @@ jobs:
             exit 1
           fi
           echo "Rollback criteria satisfied for ${{ matrix.stack }}"
+
+  digest-promotion:
+    name: Digest promotion (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - stack: backend
+            image: ghcr.io/${{ github.repository }}/backend
+          - stack: frontend
+            image: ghcr.io/${{ github.repository }}/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate digest promotion configuration
+        env:
+          SOURCE_IMAGE: ${{ matrix.image }}
+          SOURCE_DIGEST: ${{ vars.PROMOTE_SOURCE_DIGEST || '' }}
+          TARGET_ENVIRONMENT: ${{ vars.PROMOTE_TARGET_ENVIRONMENT || 'staging' }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          # Promotion must reference an immutable digest, never a mutable tag.
+          [ -n "$SOURCE_IMAGE" ] || fail "SOURCE_IMAGE must be set"
+          [[ "$SOURCE_IMAGE" != *:*@* ]] || fail "SOURCE_IMAGE must not combine a tag with a digest"
+          [[ "$SOURCE_IMAGE" != *:latest ]] || fail "SOURCE_IMAGE must not use the mutable 'latest' tag"
+
+          if [ -z "$SOURCE_DIGEST" ]; then
+            echo "::warning::PROMOTE_SOURCE_DIGEST is not set; skipping digest promotion for ${{ matrix.stack }}"
+            echo "promotion_skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Digest must be a sha256 content digest: sha256:<64 hex chars>.
+          [[ "$SOURCE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "SOURCE_DIGEST must be an immutable sha256 digest (sha256:<64 hex>), got: $SOURCE_DIGEST"
+
+          # Target environment must be a known, non-production-by-default environment.
+          [[ "$TARGET_ENVIRONMENT" =~ ^[a-z][a-z0-9-]*$ ]] || fail "TARGET_ENVIRONMENT must be a lowercase environment name"
+
+          echo "Digest promotion valid for ${{ matrix.stack }}: ${SOURCE_IMAGE}@${SOURCE_DIGEST} -> ${TARGET_ENVIRONMENT}"
+
+      - name: Record promoted digest
+        if: ${{ vars.PROMOTE_SOURCE_DIGEST != '' }}
+        env:
+          SOURCE_IMAGE: ${{ matrix.image }}
+          SOURCE_DIGEST: ${{ vars.PROMOTE_SOURCE_DIGEST }}
+          TARGET_ENVIRONMENT: ${{ vars.PROMOTE_TARGET_ENVIRONMENT || 'staging' }}
+        run: |
+          set -euo pipefail
+          # Emit the immutable reference used for promotion; never echo secrets.
+          echo "Promoting ${SOURCE_IMAGE}@${SOURCE_DIGEST} to ${TARGET_ENVIRONMENT}"
+          {
+            echo "### Digest promotion: ${{ matrix.stack }}"
+            echo ""
+            echo "- Image: \`${SOURCE_IMAGE}\`"
+            echo "- Digest: \`${SOURCE_DIGEST}\`"
+            echo "- Target environment: \`${TARGET_ENVIRONMENT}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
