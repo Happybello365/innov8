@@ -15,10 +15,36 @@ on:
 # compared against committed baselines. Baselines live under
 # mobile/e2e/visual/baselines and are refreshed with
 # `pnpm test:visual:update` (see mobile/README.md).
+#
+# Before the device suites run, the mobile-release-checklist job (#538)
+# validates version, changelog, signing, permission, and store metadata so a
+# broken release config fails fast without leaking secrets or PII.
 
 jobs:
+  mobile-release-checklist:
+    name: Mobile Release Checklist
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: 22
+
+      - name: Run release checklist
+        run: node scripts/release-checklist.mjs
+        env:
+          CI: true
+
   mobile-e2e-ios-nightly:
     name: Nightly Smoke — iOS
+    needs: mobile-release-checklist
     runs-on: macos-latest
     timeout-minutes: 25
     defaults:
@@ -92,6 +118,7 @@ jobs:
 
   mobile-e2e-android-nightly:
     name: Nightly Smoke — Android
+    needs: mobile-release-checklist
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
