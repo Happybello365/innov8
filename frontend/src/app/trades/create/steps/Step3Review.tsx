@@ -2,7 +2,16 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StrKey } from "@stellar/stellar-sdk";
+import * as freighter from "@stellar/freighter-api";
 import { signTransaction } from "@stellar/freighter-api";
+import {
+  checkWalletNetwork,
+  signWithTimeout,
+  SigningTimeoutError,
+  NetworkMismatchError,
+} from "@/lib/wallet/signing";
+import { WalletStateCallout } from "@/components/wallet/WalletStateCallout";
+import { discardDraft } from "@/lib/tradeDraft";
 import { useTrade } from "../TradeContext";
 import { useAuth } from "@/hooks/useAuth";
 import { api, apiConfig, ApiError } from "@/lib/api";
@@ -137,6 +146,8 @@ export default function Step3Review() {
   const [tradeId, setTradeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [networkMismatch, setNetworkMismatch] = useState<{ expected: string; actual: string } | null>(null);
+  const [signingTimedOut, setSigningTimedOut] = useState(false);
 
   const qty = parseFloat(data.quantity);
   const price = parseFloat(data.pricePerUnit);
@@ -225,6 +236,8 @@ export default function Step3Review() {
     submittingRef.current = true;
     setLoading(true);
     setError(null);
+    setNetworkMismatch(null);
+    setSigningTimedOut(false);
     // Unified toast contract: pending w/ correlation ID
     addToastWithCorrelation({ type: "info", title: "In progress", message: "Locking funds…", correlationId, duration: 0 });
 
@@ -233,9 +246,21 @@ export default function Step3Review() {
 
       setTradeId(createResponse.tradeId);
 
-      const signResult = await signTransaction(createResponse.unsignedXdr, {
-        networkPassphrase: apiConfig.getStellarNetworkPassphrase(),
-      });
+      // #481: block signing on the wrong Stellar network with an actionable state
+      const networkCheck = await checkWalletNetwork(
+        (freighter as { getNetworkDetails?: () => Promise<{ networkPassphrase?: string; error?: unknown }> }).getNetworkDetails,
+        apiConfig.getStellarNetworkPassphrase(),
+      );
+      if (!networkCheck.ok && networkCheck.actual) {
+        throw new NetworkMismatchError(networkCheck.expected, networkCheck.actual);
+      }
+
+      // #482: never wait forever on a stalled wallet popup
+      const signResult = await signWithTimeout(() =>
+        signTransaction(createResponse.unsignedXdr, {
+          networkPassphrase: apiConfig.getStellarNetworkPassphrase(),
+        }),
+      );
 
       if (signResult.error !== undefined) {
         throw new Error(signResult.error.message || "Failed to sign transaction");
@@ -264,9 +289,14 @@ export default function Step3Review() {
       setTxHash(submitResult.result?.hash || createResponse.tradeId);
       updateToast(correlationId, { type: "success", title: "Success", message: "Trade created — funds locked.", duration: 5000 });
       // Clear draft on success
-      try { localStorage.removeItem("amana:draft-trade"); } catch {}
+      discardDraft();
     } catch (err) {
       let errorMessage = "Transaction failed. Please try again.";
+      if (err instanceof NetworkMismatchError) {
+        setNetworkMismatch({ expected: err.expected, actual: err.actual });
+      } else if (err instanceof SigningTimeoutError) {
+        setSigningTimedOut(true);
+      }
       if (err instanceof ApiError) {
         errorMessage = err.message;
       } else if (err instanceof Error) {
@@ -371,7 +401,39 @@ export default function Step3Review() {
         locking {amountUsdc} cNGN in the innov8 escrow contract.
       </div>
 
-      {error && (
+      {networkMismatch && (
+        <div data-testid="network-mismatch">
+          <WalletStateCallout
+            state="wrong-network"
+            expectedNetwork={networkMismatch.expected}
+            busy={loading}
+            onAction={() => handleSubmit()}
+          />
+          <p className="mt-2 text-xs text-text-muted">
+            Wallet is on {networkMismatch.actual}. Switch to {networkMismatch.expected} in your wallet, then retry.
+          </p>
+        </div>
+      )}
+
+      {signingTimedOut && (
+        <div role="alert" data-testid="signing-timeout" className="rounded-lg border border-border-raised bg-card p-4">
+          <p className="text-sm font-semibold text-text-primary">Signing request timed out</p>
+          <p className="text-sm text-text-secondary mt-1">
+            Your wallet (Freighter or Albedo) did not respond. Close any open wallet popup, make sure it is unlocked, and try again.
+            Your draft has been kept.
+          </p>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => handleSubmit()}
+            className="mt-3 inline-flex h-9 items-center rounded-full bg-gradient-gold-cta px-4 text-sm font-semibold text-text-inverse disabled:opacity-40"
+          >
+            Retry signing
+          </button>
+        </div>
+      )}
+
+      {error && !networkMismatch && !signingTimedOut && (
         <p role="alert" aria-live="assertive" className="text-status-danger text-sm text-center bg-status-danger/10 border border-status-danger/30 rounded-lg px-4 py-3">
           <span className="mr-2">⚠</span>{error}
         </p>
