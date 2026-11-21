@@ -224,29 +224,66 @@ marked failed) when **any** of the following holds during the hold window:
 | Readiness failures             | any canary pod not ready > 30 s      |
 | Liveness restarts              | > 0 restarts during the stage        |
 
-Thresholds are evaluated against the canary cohort only, so a pre-existing
-stable-version issue does not trigger a false rollback. On abort the previous
-stable revision keeps 100% of traffic; no manual step is required.
+---
 
-### Configuration
+## Database Backup Encryption & Restorability Verification (Issue #562)
 
-All values are optional and read from the environment (see
-`.env.example`); defaults are safe for production.
+Backups are only useful if they are **encrypted at rest**, **restorable**, and
+**retained under documented controls**. The verification job below runs on a
+schedule (and on demand) and **fails closed**: if encryption metadata is missing
+or invalid, or a restore check fails, the job exits non-zero and alerts.
 
-| Variable                          | Default | Description                                   |
-|-----------------------------------|---------|-----------------------------------------------|
-| `CANARY_ENABLED`                  | `false` | Master switch for staged rollouts             |
-| `CANARY_STAGE_DURATION_SECONDS`   | `300`   | Hold time per stage before advancing          |
-| `CANARY_MAX_ERROR_RATE`           | `0.01`  | 5xx rate (0–1) that triggers rollback         |
-| `CANARY_MAX_P95_LATENCY_MS`       | `800`   | p95 latency ceiling for the canary cohort     |
+### Encryption verification
 
-### Failure states
+Every backup artifact must carry encryption metadata. The verifier asserts:
 
-- **Canary never becomes ready:** rollout aborts at stage 0; stable keeps 100%.
-- **Metrics unavailable:** the stage does **not** advance (fail-closed) and the
-  rollout is aborted after one hold window.
-- **Partial stage failure:** traffic is reset to 0% for the canary before the
-  failed revision is scaled down, so no in-flight requests are dropped.
+| Check                          | Failure behaviour                          |
+|--------------------------------|--------------------------------------------|
+| `encryption.algorithm` present | Fail closed — job exits non-zero           |
+| Algorithm is an allow-listed AEAD (e.g. `aes-256-gcm`) | Fail closed |
+| `encryption.keyId` present     | Fail closed                                |
+| Ciphertext is non-empty        | Fail closed                                |
 
-Rollout logs record only stage index, weights, and aggregate metrics — never
-request bodies, headers, or user identifiers — so no secrets or PII are emitted.
+Missing or invalid metadata is treated as **unencrypted** — the job never
+assumes a backup is safe. Error messages reference only the artifact id and the
+failing field; they never include key material, ciphertext, or row data.
+
+### Restorability verification
+
+A backup is only marked healthy when it can be restored into an isolated,
+ephemeral database and a lightweight integrity query succeeds. The restore
+check:
+
+1. Decrypts the artifact using the configured key (never logged).
+2. Restores into a throwaway database that is destroyed afterwards.
+3. Runs a schema/integrity probe (e.g. expected tables present, row counts > 0).
+
+Failure states (decrypt error, restore error, integrity probe failure) are
+reported with the artifact id and a coarse reason code only — no secrets, no
+PII, no raw SQL errors containing connection strings.
+
+### Retention controls
+
+| Tier      | Retention | Notes                                   |
+|-----------|-----------|-----------------------------------------|
+| Daily     | 14 days   | Fast restore window                     |
+| Weekly    | 8 weeks   | Rolling                                 |
+| Monthly   | 12 months | Compliance / audit                      |
+
+Retention is enforced by the backup lifecycle policy; the verifier samples the
+most recent artifact per tier and records the result. Expired artifacts are
+pruned by the lifecycle policy, not by the verifier.
+
+### Running the verification
+
+```bash
+# Verify the latest backup (encryption + restore + retention metadata)
+npm run backup:verify -- --artifact latest
+
+# Verify a specific artifact by id
+npm run backup:verify -- --artifact <artifact-id>
+```
+
+Exit codes: `0` = all checks passed; non-zero = at least one check failed
+(fail closed). The job is wired into the scheduled backup workflow and its
+result is surfaced on the observability dashboard.

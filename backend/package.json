@@ -10,7 +10,8 @@
     "lint": "eslint src/",
     "postinstall": "npx prisma generate",
     "mutation": "stryker run stryker.money-math.config.json",
-    "mutation:ci": "stryker run stryker.money-math.config.json --reporters html,json,progress"
+    "mutation:ci": "stryker run stryker.money-math.config.json --reporters html,json,progress",
+    "backup:verify": "tsx scripts/verify-backup.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
