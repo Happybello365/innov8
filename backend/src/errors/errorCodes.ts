@@ -43,6 +43,8 @@ export enum ErrorCode {
 export interface StructuredErrorPayload {
   code: ErrorCode | string;
   message: string;
+  /** Optional locale-aware message appended when the caller sends Accept-Language (#452). */
+  localizedMessage?: string;
   details: Record<string, unknown>;
   timestamp: string;
   path?: string;

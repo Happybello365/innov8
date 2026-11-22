@@ -128,6 +128,10 @@ model Trade {
   expiresAt     DateTime?
   /// Set by the sweeper once a refund has been successfully submitted on-chain.
   expiredAt     DateTime?
+  /// Set when the trade is archived; null means the trade is active (#454).
+  archivedAt    DateTime?
+  /// Wallet address of the actor that archived or restored the trade.
+  archivedBy    String?    @db.VarChar(255)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -149,6 +153,7 @@ model Trade {
   @@index([sellerAddress, status, createdAt])
   @@index([buyerAddress, createdAt])
   @@index([sellerAddress, createdAt])
+  @@index([archivedAt])
 }
 
 /// TradeTemplate stores a user's reusable trade terms. The buyer is always the
