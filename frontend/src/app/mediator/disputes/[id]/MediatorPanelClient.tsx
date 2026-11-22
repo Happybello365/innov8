@@ -15,6 +15,8 @@ import { signTransaction } from "@stellar/freighter-api";
 import { useFreighterIdentity } from "@/hooks/useFreighterIdentity";
 import { Badge } from "@/components/ui/Badge";
 import { WalletAddressBadge } from "@/components/ui/WalletAddressBadge";
+import { EvidenceMetadataPanel } from "@/components/ui/EvidenceMetadataPanel";
+import { DisputeTimeline, type DisputeTimelineEvent } from "@/components/trade/DisputeTimeline";
 import { api, ApiError, type EvidenceRecord } from "@/lib/api";
 
 type Props = { disputeId: string };
@@ -120,12 +122,12 @@ export default function MediatorPanelClient({ disputeId }: Props) {
   const [videoLoadState, setVideoLoadState] =
     useState<VideoLoadState>("loading");
   const [resolvedCid, setResolvedCid] = useState<string | null>(null);
+  const [allEvidenceRecords, setAllEvidenceRecords] = useState<EvidenceRecord[]>([]);
   const [cidSource, setCidSource] = useState<
     "backend" | "query" | "none" | "loading"
   >("loading");
   const [cidMessage, setCidMessage] = useState("");
-  const [modal, setModal] = useState<ConfirmationModalState>({
-    isOpen: false,
+  const [modal, setModal] = useState<ConfirmationModalState>({    isOpen: false,
     sellerGetsBps: null,
     splitLabel: "",
   });
@@ -202,6 +204,7 @@ export default function MediatorPanelClient({ disputeId }: Props) {
         if (!cancelled && backendCid) {
           setCidSource("backend");
           setResolvedCid(backendCid);
+          setAllEvidenceRecords(response.evidence);
           return;
         }
 
@@ -389,83 +392,101 @@ export default function MediatorPanelClient({ disputeId }: Props) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Evidence Video */}
+        {/* Left: Evidence Video with metadata (#486 / #488) */}
         <div className="lg:col-span-7">
-          <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-card">
-            {!pinataUrl ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center p-6">
-                <svg
-                  className="w-10 h-10 text-status-danger"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 9v3m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <p className="text-white font-medium">Evidence unavailable</p>
-                <p className="text-gray-400 text-sm max-w-md">
-                  {cidSource === "loading" ? "Loading evidence..." : cidMessage}
-                </p>
-              </div>
-            ) : videoLoadState === "terminal-failure" ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center p-6">
-                <svg
-                  className="w-10 h-10 text-status-danger"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 9v3m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <p className="text-white font-medium">Evidence unavailable</p>
-                <p className="text-gray-400 text-sm">
-                  All IPFS gateways failed to load this file.
-                </p>
-                <button
-                  onClick={() => {
-                    setActiveGatewayIndex(0);
-                    setVideoLoadState("loading");
-                  }}
-                  className="mt-2 px-4 py-2 bg-bg-elevated border border-border-default text-text-primary text-sm rounded-md hover:bg-bg-input transition-colors"
-                >
-                  Retry from first gateway
-                </button>
-              </div>
-            ) : (
-              <>
-                {videoLoadState === "loading" && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="animate-spin w-8 h-8 border-2 border-gold border-t-transparent rounded-full" />
-                      <span className="text-gray-300 text-xs">
-                        Loading via gateway {activeGatewayIndex + 1}/
-                        {PINATA_GATEWAYS.length}…
-                      </span>
+          {resolvedCid ? (
+            /* #486 — EvidenceMetadataPanel shows preview + file/checksum/IPFS metadata */
+            <EvidenceMetadataPanel
+              cid={resolvedCid}
+              mimeType={
+                allEvidenceRecords.find((r) => r.cid === resolvedCid)
+                  ?.mimeType ?? "video/mp4"
+              }
+              uploadedAt={
+                allEvidenceRecords.find((r) => r.cid === resolvedCid)
+                  ?.createdAt
+              }
+              videoSrc={pinataUrl ?? undefined}
+              fallbackSrcs={PINATA_GATEWAYS.filter((g) => g !== PINATA_GATEWAYS[activeGatewayIndex])}
+            />
+          ) : (
+            /* Fallback: original video player for non-backend / query-param CIDs */
+            <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-card">
+              {!pinataUrl ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center p-6">
+                  <svg
+                    className="w-10 h-10 text-status-danger"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v3m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <p className="text-white font-medium">Evidence unavailable</p>
+                  <p className="text-gray-400 text-sm max-w-md">
+                    {cidSource === "loading" ? "Loading evidence..." : cidMessage}
+                  </p>
+                </div>
+              ) : videoLoadState === "terminal-failure" ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center p-6">
+                  <svg
+                    className="w-10 h-10 text-status-danger"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v3m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <p className="text-white font-medium">Evidence unavailable</p>
+                  <p className="text-gray-400 text-sm">
+                    All IPFS gateways failed to load this file.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setActiveGatewayIndex(0);
+                      setVideoLoadState("loading");
+                    }}
+                    className="mt-2 px-4 py-2 bg-bg-elevated border border-border-default text-text-primary text-sm rounded-md hover:bg-bg-input transition-colors"
+                  >
+                    Retry from first gateway
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {videoLoadState === "loading" && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="animate-spin w-8 h-8 border-2 border-gold border-t-transparent rounded-full" />
+                        <span className="text-gray-300 text-xs">
+                          Loading via gateway {activeGatewayIndex + 1}/
+                          {PINATA_GATEWAYS.length}…
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                )}
-                <video
-                  key={pinataUrl}
-                  controls
-                  className="w-full h-full object-contain bg-black"
-                  src={pinataUrl}
-                  onLoadStart={() => setVideoLoadState("loading")}
-                  onCanPlay={() => setVideoLoadState("ready")}
-                  onError={handleVideoError}
-                />
-              </>
-            )}
-          </div>
+                  )}
+                  <video
+                    key={pinataUrl}
+                    controls
+                    className="w-full h-full object-contain bg-black"
+                    src={pinataUrl}
+                    onLoadStart={() => setVideoLoadState("loading")}
+                    onCanPlay={() => setVideoLoadState("ready")}
+                    onError={handleVideoError}
+                  />
+                </>
+              )}
+            </div>
+          )}
 
           {/* Video meta */}
           <div className="mt-3 text-sm text-text-secondary space-y-2">
@@ -511,6 +532,22 @@ export default function MediatorPanelClient({ disputeId }: Props) {
                 </Badge>
               </div>
               <div>Wallet: {address ?? "Not connected"}</div>
+            </div>
+          )}
+
+          {/* #487 — Dispute timeline accessibility view */}
+          {allEvidenceRecords.length > 0 && (
+            <div className="mt-6">
+              <DisputeTimeline
+                currentStatus="UNDER_REVIEW"
+                events={allEvidenceRecords.map<DisputeTimelineEvent>((r, i) => ({
+                  id: r.id,
+                  status: i === allEvidenceRecords.length - 1 ? "UNDER_REVIEW" : "OPEN",
+                  label: i === 0 ? "Evidence submitted" : `Additional evidence uploaded`,
+                  timestamp: r.createdAt,
+                  note: `Uploaded by ${r.uploadedBy}`,
+                }))}
+              />
             </div>
           )}
         </div>

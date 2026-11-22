@@ -10,6 +10,7 @@ import { useWallet } from "@/hooks/useWallet";
 import { api, ApiError } from "@/lib/api";
 import { apiConfig } from "@/lib/api";
 import { TxSummaryModal, type TxSummaryItem } from "@/components/ui/TxSummaryModal";
+import { LossRatioExplanation } from "@/components/trade/LossRatioExplanation";
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleString("en-US", {
@@ -326,18 +327,17 @@ export default function TradeDetailPage() {
             <InfoCard title="Seller" value={formatAddress(trade.sellerAddress)} helper="Seller wallet address" />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <InfoCard
-              title="Buyer Loss Ratio"
-              value={`${(trade.buyerLossBps / 100).toFixed(2)}%`}
-              helper="Buyer's share of loss"
-            />
-            <InfoCard
-              title="Seller Loss Ratio"
-              value={`${(trade.sellerLossBps / 100).toFixed(2)}%`}
-              helper="Seller's share of loss"
-            />
-          </div>
+          {/* #489 — Loss-ratio explanation visualization */}
+          <LossRatioExplanation
+            buyerLossBps={trade.buyerLossBps}
+            sellerLossBps={trade.sellerLossBps}
+            totalAmount={
+              trade.amountCngn ? parseFloat(trade.amountCngn) : undefined
+            }
+            amountUnit="cNGN"
+            buyerLabel={`Buyer (${formatAddress(trade.buyerAddress)})`}
+            sellerLabel={`Seller (${formatAddress(trade.sellerAddress)})`}
+          />
 
           {/* Action feedback */}
           {actionError && (
