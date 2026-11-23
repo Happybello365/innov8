@@ -24,19 +24,20 @@ and `navigation/AppNavigator.tsx`.
 | `/disputes/:id` | `DisputeDetail` | `{ id }` |
 | `/trades/:tradeId/evidence` | `EvidenceCapture` | `{ tradeId }` |
 | `/trades` | `TradeList` | — |
-| `/create-trade` | `CreateTrade` | — |
+| `/trades/create` or `/create-trade` | `CreateTrade` | — |
+| `/connect` | `WalletConnect` | — |
+| `/vault` | `VaultDashboard` | — |
 
 `frontend/src/lib/links.ts` mirrors this table for the web side.
 
 ## Auth-aware guards (login-then-continue)
 
-1. `parseDeepLink(url)` → target, or `null` for unknown/malformed (dropped
-   silently — never crashes).
-2. `AppNavigator.getStateFromPath` sends an unauthenticated user hitting a
-   protected link to `WalletConnect`.
-3. `useDeepLink` parks the real target in a module-level slot (survives the
-   WalletConnect → TradeList remount) and `resumePendingDeepLink` replays it the
-   moment a token appears.
+1. `useDeepLink.handleUrl` accepts absolute URLs from native Linking and
+   passes them through `parseDeepLink`.
+2. `useDeepLink` parks a valid target while the navigator initializes or while
+   a protected screen waits for login.
+3. `resumePendingDeepLink` replays the target when the navigator and session
+   are ready.
 
 ## Allowlist validation (issue #534)
 
@@ -52,8 +53,8 @@ links to unrelated resources never navigate and are never parked for login.
 | Characters | printable URL characters | whitespace, control characters, backslashes (`malformed`) |
 | Route params | one decoded path segment, ≤ 128 chars | encoded `/` `\` `?` `#`, `..`, bad percent-encoding |
 
-Bare paths (`/trades/T-1`) remain valid: they are produced internally by
-notification routing and by react-navigation after prefix stripping.
+The parser also accepts internal bare paths such as `/trades/T-1`. Native
+Linking requires an absolute URL.
 `LINK_PREFIXES` is derived from `ALLOWED_LINK_HOSTS`; when adding a host, update
 `ALLOWED_LINK_HOSTS`, `LINK_HOSTS` in `app.config.ts`, and the hosted
 association files together. Rejected links are dropped silently; the reason
