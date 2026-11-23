@@ -67,11 +67,11 @@ export function deepLinkRejectionReason(input: string | null | undefined): DeepL
   // Parse the authority by hand rather than via `URL`: React Native's URL
   // polyfill does not implement every getter, and we only need the authority.
   const rest = input.slice(schemeMatch[0].length);
-  if (!rest.startsWith('//')) return scheme === 'https:' ? 'malformed' : null;
+  if (!rest.startsWith('//')) return 'malformed';
   const authority = rest.slice(2).split(/[/?#]/, 1)[0];
   if (authority.includes('@')) return 'credentials';
+  if (authority.includes(':')) return 'port';
   if (scheme === 'https:') {
-    if (authority.includes(':')) return 'port';
     if (!ALLOWED_LINK_HOSTS.includes(authority.toLowerCase())) return 'host';
   }
   return null;
@@ -101,6 +101,27 @@ interface Route {
 
 const ROUTES: Route[] = [
   {
+    path: 'create-trade',
+    screen: 'CreateTrade',
+    match: /^\/?(?:create-trade|trades\/create)\/?$/,
+    toParams: () => ({}),
+    toWebPath: () => `/trades/create`,
+  },
+  {
+    path: 'connect',
+    screen: 'WalletConnect',
+    match: /^\/?connect\/?$/,
+    toParams: () => ({}),
+    toWebPath: () => '/connect',
+  },
+  {
+    path: 'vault',
+    screen: 'VaultDashboard',
+    match: /^\/?vault\/?$/,
+    toParams: () => ({}),
+    toWebPath: () => '/vault',
+  },
+  {
     path: 'trades/:tradeId',
     screen: 'TradeDetail',
     match: /^\/?trades\/([^/?#]+)\/?$/,
@@ -128,13 +149,7 @@ const ROUTES: Route[] = [
     toParams: () => ({}),
     toWebPath: () => `/trades`,
   },
-  {
-    path: 'create-trade',
-    screen: 'CreateTrade',
-    match: /^\/?create-trade\/?$/,
-    toParams: () => ({}),
-    toWebPath: () => `/trades/create`,
-  },
+
 ];
 
 /** react-navigation `linking.config.screens` map. */
@@ -154,21 +169,12 @@ export function parseDeepLink(input: string | null | undefined): DeepLinkTarget 
   // Allowlist first (issue #534): unrelated schemes / hosts never route.
   if (!isAllowedDeepLink(input)) return null;
 
-  let pathname: string;
-  try {
-    if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(input)) {
-      const url = new URL(input);
-      // custom scheme: amanavault://trades/123  -> host="trades", pathname="/123"
-      pathname =
-        url.protocol.toLowerCase() === `${APP_SCHEME}:` ? `/${url.host}${url.pathname}` : url.pathname;
-    } else {
-      pathname = input.startsWith('/') ? input : `/${input}`;
-    }
-  } catch {
-    return null;
+  const absolute = input.match(/^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/?#]*)([^?#]*)/);
+  let pathname = input;
+  if (absolute) {
+    const [, scheme, authority, path] = absolute;
+    pathname = scheme.toLowerCase() === APP_SCHEME && authority ? `/${authority}${path}` : path;
   }
-
-  pathname = pathname.replace(/\/{2,}/g, '/');
 
   for (const route of ROUTES) {
     const m = pathname.match(route.match);
