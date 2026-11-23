@@ -67,4 +67,30 @@ describe('useDeepLink (auth-aware routing)', () => {
 
     expect(result.current.pendingDeepLink).toBeNull();
   });
+
+  it('drops links from hosts or schemes outside the allowlist (issue #534)', () => {
+    setAuth('tok');
+    const nav = { navigate: jest.fn() } as never;
+    const { result } = renderHook(() => useDeepLink());
+
+    act(() => {
+      result.current.handleUrl('https://evil.example/trades/T1', nav);
+      result.current.handleUrl('http://amanavault.app/trades/T1', nav);
+      result.current.handleUrl('otherapp://trades/T1', nav);
+    });
+
+    expect((nav as unknown as { navigate: jest.Mock }).navigate).not.toHaveBeenCalled();
+    expect(result.current.pendingDeepLink).toBeNull();
+  });
+
+  it('does not park a disallowed link while signed out', () => {
+    setAuth(null);
+    const { result } = renderHook(() => useDeepLink());
+
+    act(() => {
+      result.current.handleUrl('https://evil.example/trades/T1');
+    });
+
+    expect(result.current.pendingDeepLink).toBeNull();
+  });
 });

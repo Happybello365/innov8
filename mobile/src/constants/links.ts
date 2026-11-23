@@ -12,8 +12,75 @@ import type { RootStackParamList } from '../types/navigation';
 export const APP_SCHEME = 'amanavault';
 export const WEB_ORIGIN = 'https://amanavault.app';
 
+/**
+ * Universal / App Link hosts we accept (issue #534). Must match
+ * `LINK_HOSTS` in app.config.ts and the hosted association files.
+ */
+export const ALLOWED_LINK_HOSTS: readonly string[] = ['amanavault.app', 'www.amanavault.app'];
+
+/** Only these URL schemes may open a screen. `http:` is deliberately excluded. */
+export const ALLOWED_LINK_SCHEMES: readonly string[] = [`${APP_SCHEME}:`, 'https:'];
+
 /** Hosts we accept universal / app links from. */
-export const LINK_PREFIXES = [`${APP_SCHEME}://`, `${WEB_ORIGIN}`, 'https://www.amanavault.app'];
+export const LINK_PREFIXES = [`${APP_SCHEME}://`, ...ALLOWED_LINK_HOSTS.map((h) => `https://${h}`)];
+
+/**
+ * Route params (trade / dispute ids) must be a single path segment once
+ * decoded. Encoded path separators (`%2F`, `%5C`), query / fragment markers,
+ * control characters and traversal sequences are rejected so a crafted link
+ * can't smuggle another resource into a screen. Max 128 chars.
+ */
+// eslint-disable-next-line no-control-regex
+const SAFE_PARAM = /^[^/\\?#\u0000-\u001f\u007f]{1,128}$/;
+
+export type DeepLinkRejectionReason =
+  | 'empty'
+  | 'malformed'
+  | 'scheme'
+  | 'host'
+  | 'credentials'
+  | 'port';
+
+/**
+ * Validate a raw URL against the deep-link allowlist (issue #534).
+ *
+ * Bare paths (`/trades/123`, produced internally e.g. by notification routing)
+ * are allowed; absolute URLs must use an allowed scheme and, for `https:`, an
+ * allowed host with no userinfo and no explicit port. Returns the reason for
+ * rejection, or `null` when the URL is acceptable.
+ */
+export function deepLinkRejectionReason(input: string | null | undefined): DeepLinkRejectionReason | null {
+  if (!input || typeof input !== 'string' || !input.trim()) return 'empty';
+  // Control characters / whitespace inside a link are never legitimate.
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f\s\\]/.test(input)) return 'malformed';
+
+  const schemeMatch = input.match(/^([A-Za-z][A-Za-z0-9+.-]*):/);
+  if (!schemeMatch) {
+    // Bare path. Protocol-relative URLs (`//evil.example/...`) are not paths.
+    return input.startsWith('//') ? 'host' : null;
+  }
+
+  const scheme = `${schemeMatch[1].toLowerCase()}:`;
+  if (!ALLOWED_LINK_SCHEMES.includes(scheme)) return 'scheme';
+
+  // Parse the authority by hand rather than via `URL`: React Native's URL
+  // polyfill does not implement every getter, and we only need the authority.
+  const rest = input.slice(schemeMatch[0].length);
+  if (!rest.startsWith('//')) return scheme === 'https:' ? 'malformed' : null;
+  const authority = rest.slice(2).split(/[/?#]/, 1)[0];
+  if (authority.includes('@')) return 'credentials';
+  if (scheme === 'https:') {
+    if (authority.includes(':')) return 'port';
+    if (!ALLOWED_LINK_HOSTS.includes(authority.toLowerCase())) return 'host';
+  }
+  return null;
+}
+
+/** True when `input` passes the deep-link allowlist. */
+export function isAllowedDeepLink(input: string | null | undefined): boolean {
+  return deepLinkRejectionReason(input) === null;
+}
 
 export interface DeepLinkTarget {
   screen: keyof RootStackParamList;
@@ -84,12 +151,16 @@ export const LINKING_SCREEN_CONFIG: Partial<Record<keyof RootStackParamList, str
 export function parseDeepLink(input: string | null | undefined): DeepLinkTarget | null {
   if (!input || typeof input !== 'string') return null;
 
+  // Allowlist first (issue #534): unrelated schemes / hosts never route.
+  if (!isAllowedDeepLink(input)) return null;
+
   let pathname: string;
   try {
-    if (input.includes('://')) {
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(input)) {
       const url = new URL(input);
       // custom scheme: amanavault://trades/123  -> host="trades", pathname="/123"
-      pathname = url.protocol === `${APP_SCHEME}:` ? `/${url.host}${url.pathname}` : url.pathname;
+      pathname =
+        url.protocol.toLowerCase() === `${APP_SCHEME}:` ? `/${url.host}${url.pathname}` : url.pathname;
     } else {
       pathname = input.startsWith('/') ? input : `/${input}`;
     }
@@ -102,9 +173,18 @@ export function parseDeepLink(input: string | null | undefined): DeepLinkTarget 
   for (const route of ROUTES) {
     const m = pathname.match(route.match);
     if (m) {
-      const params = route.toParams(m);
-      // reject empty / obviously bad ids
-      if (Object.values(params).some((v) => v === '' || v === 'undefined' || v === 'null')) {
+      let params: Record<string, string>;
+      try {
+        params = route.toParams(m);
+      } catch {
+        return null; // malformed percent-encoding
+      }
+      // reject empty / obviously bad / unsafe ids
+      if (
+        Object.values(params).some(
+          (v) => v === '' || v === 'undefined' || v === 'null' || !SAFE_PARAM.test(v) || v.includes('..'),
+        )
+      ) {
         return null;
       }
       return { screen: route.screen, params: Object.keys(params).length ? params : undefined };

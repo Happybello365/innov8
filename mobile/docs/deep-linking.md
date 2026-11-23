@@ -38,6 +38,28 @@ and `navigation/AppNavigator.tsx`.
    WalletConnect → TradeList remount) and `resumePendingDeepLink` replays it the
    moment a token appears.
 
+## Allowlist validation (issue #534)
+
+Every incoming URL passes `deepLinkRejectionReason()` / `isAllowedDeepLink()`
+(`src/constants/links.ts`) **before** it is matched against the path table, so
+links to unrelated resources never navigate and are never parked for login.
+
+| Rule | Accepted | Rejected (reason) |
+| --- | --- | --- |
+| Scheme | `amanavault:`, `https:` | `http:`, `javascript:`, `file:`, `intent:`, other apps (`scheme`) |
+| Host (`https:` only) | `ALLOWED_LINK_HOSTS` = `amanavault.app`, `www.amanavault.app` (case-insensitive, exact match) | look-alikes such as `amanavault.app.evil.example` (`host`) |
+| Authority | bare host | userinfo `user:pass@` (`credentials`), explicit port (`port`), protocol-relative `//host` (`host`) |
+| Characters | printable URL characters | whitespace, control characters, backslashes (`malformed`) |
+| Route params | one decoded path segment, ≤ 128 chars | encoded `/` `\` `?` `#`, `..`, bad percent-encoding |
+
+Bare paths (`/trades/T-1`) remain valid: they are produced internally by
+notification routing and by react-navigation after prefix stripping.
+`LINK_PREFIXES` is derived from `ALLOWED_LINK_HOSTS`; when adding a host, update
+`ALLOWED_LINK_HOSTS`, `LINK_HOSTS` in `app.config.ts`, and the hosted
+association files together. Rejected links are dropped silently; the reason
+code is never logged with the raw URL, so tokens or PII in a crafted link are
+not leaked.
+
 ## Cold vs warm start
 
 - **Cold**: `Linking.getInitialURL()` in `AppNavigator` on mount.
