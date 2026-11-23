@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/formatAmount';
 /**
  * AdminActionSuccessScreen — #85
  *
@@ -61,7 +62,7 @@ function HistoryRow({
   streamId: string;
   timestamp: string;
 }) {
-  const formatted = new Date(timestamp).toLocaleString();
+  const formatted = formatDate(timestamp, true);
   return (
     <View
       style={styles.historyRow}
@@ -102,7 +103,7 @@ export default function AdminActionSuccessScreen({ navigation, route }: Props) {
     }).start();
   }, [actionType, scaleAnim, streamId]);
 
-  const formatted = new Date(timestamp).toLocaleString();
+  const formatted = formatDate(timestamp, true);
 
   return (
     <View

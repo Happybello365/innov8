@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/formatAmount';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -104,7 +105,7 @@ export default function ReputationHistoryScreen({ navigation }: Props) {
             .reverse()
             .map((p) => (
               <View key={`row-${p.recordedAt}`} style={styles.row}>
-                <Text style={styles.rowDate}>{new Date(p.recordedAt).toLocaleDateString()}</Text>
+                <Text style={styles.rowDate}>{formatDate(p.recordedAt)}</Text>
                 <Text style={styles.rowScore}>{p.score}</Text>
               </View>
             ))}
