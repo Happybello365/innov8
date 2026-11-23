@@ -193,6 +193,12 @@ innov8 is an open-source project aimed at improving food security and trade effi
 4. Push to the Branch (`git push origin feature/NewFeature`).
 5. Open a Pull Request.
 
+### Issue triage and contribution workflow
+
+See the [Contributor Issue Triage Guide](./docs/contributor-issue-triage.md)
+for issue labels, area ownership, severity and response targets, and the
+stale-issue policy before claiming or triaging an issue.
+
 ### Admin route development
 
 If you are adding or modifying admin routes, see the

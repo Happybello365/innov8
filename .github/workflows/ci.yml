@@ -89,6 +89,21 @@ jobs:
       - name: Validate quarantine registry (no expired entries)
         run: node scripts/validate-flaky-quarantine.mjs
 
+  validate-triage-policy:
+    name: Validate issue triage policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: 22
+
+      - name: Validate labels, severity targets, ownership, and stale rules
+        run: node scripts/validate-issue-triage-policy.mjs
+
   frontend:
     name: Frontend Required Gate
     runs-on: ubuntu-latest
