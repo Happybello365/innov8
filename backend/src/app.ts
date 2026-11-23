@@ -20,6 +20,7 @@ import { webhooksRoutes } from "./routes/webhooks.routes";
 import { inboundWebhooksRoutes } from "./routes/webhooks.inbound.routes";
 import { captureRawBody } from "./middleware/webhookSignature.middleware";
 import { createAdminDlqRouter } from "./routes/admin.dlq.routes";
+import { createAdminJobsRouter } from "./routes/admin.jobs.routes";
 import { createAdminReportRouter } from "./routes/admin.report.routes";
 import { adminFeatureGate } from "./middleware/adminFeatureGate.middleware";
 import { env } from "./config/env";
@@ -168,6 +169,8 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
 
   // Admin dead-letter queue inspection/replay: GET /api/admin/dlq/:queue, POST /api/admin/dlq/:queue/:jobId/replay
   app.use(adminFeatureGate, csrfProtection, createAdminDlqRouter());
+  // Admin scheduled-job pause controls: GET /api/admin/jobs, GET /api/admin/jobs/:job/status, POST /api/admin/jobs/:job/{pause,resume}
+  app.use(adminFeatureGate, csrfProtection, createAdminJobsRouter());
   // Admin cross-entity reporting: POST /api/admin/reports/query, /api/admin/reports/saved
   app.use(adminFeatureGate, csrfProtection, createAdminReportRouter());
 
