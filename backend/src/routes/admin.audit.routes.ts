@@ -6,6 +6,7 @@ import { adminAuditService } from "../services/adminAudit.service";
 import { createWalletRateLimiter } from "../lib/rateLimit";
 import { RATE_LIMIT_CONFIG } from "../config/rateLimit";
 import { CURSOR_DEPRECATION_WARNING, InvalidCursorError } from "../lib/cursorPagination";
+import { queryPiiAccess } from "../lib/piiAudit";
 
 function parseNumericQueryParam(value: unknown): number | undefined {
   if (typeof value !== "string" || value.trim() === "") {
@@ -63,6 +64,32 @@ export function createAdminAuditRouter(): Router {
       } catch (error) {
         next(error);
       }
+    },
+  );
+
+  // Bounded query over recent PII decrypts (who decrypted what, and why).
+  // Returns metadata only; plaintext is never retained.
+  router.get(
+    "/api/admin/audit/pii-access",
+    authMiddleware,
+    adminMiddleware,
+    adminRateLimit,
+    (req: AuthRequest, res: Response) => {
+      const since = parseStringQueryParam(req.query.since);
+      if (since !== undefined && Number.isNaN(Date.parse(since))) {
+        res.status(400).json({ error: "since must be an ISO-8601 timestamp" });
+        return;
+      }
+      res.status(200).json(
+        queryPiiAccess({
+          actor: parseStringQueryParam(req.query.actor),
+          resource: parseStringQueryParam(req.query.resource),
+          recordId: parseStringQueryParam(req.query.recordId),
+          action: parseStringQueryParam(req.query.action),
+          since,
+          limit: parseNumericQueryParam(req.query.limit),
+        }),
+      );
     },
   );
 
