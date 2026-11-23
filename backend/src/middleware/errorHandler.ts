@@ -4,6 +4,7 @@ import { env } from '../config/env';
 import { AppError, ErrorCode, StructuredErrorPayload, isAppError } from '../errors/errorCodes';
 import { CORRELATION_ID_HEADER, REQUEST_ID_HEADER, TracedRequest } from './correlationId.middleware';
 import { appLogger } from './logger';
+import { isCancellationError } from './requestCancellation.middleware';
 
 export function errorHandler(
   err: unknown,
@@ -20,6 +21,17 @@ export function errorHandler(
     traced.requestId ||
     (res.getHeader(REQUEST_ID_HEADER) as string | undefined);
   const path = req.path;
+
+  // Client disconnected before the response was sent — 499 is the conventional
+  // status code for "client closed request" (nginx convention, widely understood).
+  // Log at debug level only: this is expected during normal operation.
+  if (isCancellationError(err)) {
+    appLogger.debug({ requestId, path }, 'Request cancelled by client');
+    if (!res.headersSent) {
+      res.status(499).end();
+    }
+    return;
+  }
 
   if (isAppError(err)) {
     const appErr = err as AppError;

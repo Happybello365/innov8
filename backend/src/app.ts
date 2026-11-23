@@ -3,6 +3,7 @@ import express from "express";
 import helmet from "helmet";
 import { errorHandler } from "./middleware/errorHandler";
 import { correlationIdMiddleware } from "./middleware/correlationId.middleware";
+import { requestCancellationMiddleware } from "./middleware/requestCancellation.middleware";
 import { tracingMiddleware } from "./middleware/tracing.middleware";
 import loggerMiddleware, { appLogger } from "./middleware/logger";
 import { bodyParsers } from "./middleware/bodyLimits";
@@ -105,6 +106,9 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
   // Correlation ID must be registered before the logger so every log line
   // produced by pino-http already carries the tracing IDs.
   app.use(correlationIdMiddleware);
+  // Propagate client disconnection via AbortSignal so repository/RPC/queue
+  // calls can bail out early when no one is waiting for the response (#450).
+  app.use(requestCancellationMiddleware);
   // OpenTelemetry tracing middleware - integrates with correlation IDs
   app.use(tracingMiddleware);
   app.use(loggerMiddleware);
