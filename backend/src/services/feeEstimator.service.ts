@@ -227,3 +227,49 @@ export async function withFeeBumpRetry<T>(
 
   throw lastErr;
 }
+
+/**
+ * Fee floor/ceiling protection (issue #466).
+ *
+ * Horizon fee stats can occasionally return abnormal values (zero, negative,
+ * NaN, or extreme spikes). Clamping in {@link computeBufferedFee} silently hides
+ * these; this guard instead *rejects* a recommendation whose raw percentile
+ * fee falls outside the configured safety bounds so callers do not submit
+ * with a fee derived from bad data.
+ */
+export class FeeOutOfBoundsError extends Error {
+  constructor(
+    public readonly fee: number,
+    public readonly floor: number,
+    public readonly ceiling: number,
+  ) {
+    super(`Stellar fee recommendation ${fee} outside safety bounds [${floor}, ${ceiling}]`);
+    this.name = "FeeOutOfBoundsError";
+  }
+}
+
+export interface FeeSafetyBounds {
+  floorStroops: number;
+  ceilingStroops: number;
+}
+
+export function feeSafetyBoundsFromEnv(): FeeSafetyBounds {
+  return {
+    floorStroops: runtimeEnvValue("STELLAR_FEE_FLOOR_STROOPS"),
+    ceilingStroops: runtimeEnvValue("STELLAR_FEE_CEILING_STROOPS"),
+  };
+}
+
+/** Throws {@link FeeOutOfBoundsError} when `fee` is non-finite or outside [floor, ceiling]. */
+export function assertFeeWithinBounds(
+  fee: number,
+  bounds: FeeSafetyBounds = feeSafetyBoundsFromEnv(),
+): number {
+  if (bounds.floorStroops > bounds.ceilingStroops) {
+    throw new Error("Invalid fee safety bounds: floor exceeds ceiling");
+  }
+  if (!Number.isFinite(fee) || fee < bounds.floorStroops || fee > bounds.ceilingStroops) {
+    throw new FeeOutOfBoundsError(fee, bounds.floorStroops, bounds.ceilingStroops);
+  }
+  return fee;
+}

@@ -75,6 +75,10 @@ export const envSchema = z.object({
   STELLAR_NETWORK_PASSPHRASE: z.string().optional(),
   STELLAR_RPC_URL: z.string().optional(),
   SOROBAN_RPC_URL: z.string().optional(),
+  // Comma-separated fallback Stellar RPC URLs (issue #465), tried after STELLAR_RPC_URL
+  STELLAR_RPC_FALLBACK_URLS: z.string().optional(),
+  STELLAR_RPC_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(1),
+  STELLAR_RPC_COOLDOWN_MS: z.coerce.number().int().min(0).default(30000),
   /** @deprecated Use AMANA_ESCROW_CONTRACT_ID */
   CONTRACT_ID: z.string().min(1).optional(),
   AMANA_ESCROW_CONTRACT_ID: z.string().min(1),
@@ -217,6 +221,9 @@ export const envSchema = z.object({
   STELLAR_FEE_MAX_STROOPS: z.coerce.number().int().positive().default(1_000_000),
   STELLAR_FEE_BUMP_FACTOR: z.coerce.number().gt(1).default(1.5),
   STELLAR_FEE_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
+  // Fee floor/ceiling protection (issue #466): reject abnormal raw fee recommendations
+  STELLAR_FEE_FLOOR_STROOPS: z.coerce.number().int().positive().default(100),
+  STELLAR_FEE_CEILING_STROOPS: z.coerce.number().int().positive().default(10_000_000),
 
   // Admin session device binding (issue #198) — see lib/deviceContext.ts,
   // services/adminSession.service.ts. Off by default so plain admin bearers
