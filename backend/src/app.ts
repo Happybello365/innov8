@@ -21,6 +21,7 @@ import { inboundWebhooksRoutes } from "./routes/webhooks.inbound.routes";
 import { captureRawBody } from "./middleware/webhookSignature.middleware";
 import { createAdminDlqRouter } from "./routes/admin.dlq.routes";
 import { createAdminReportRouter } from "./routes/admin.report.routes";
+import { createAdminEvidenceRouter } from "./routes/admin.evidence.routes";
 import { adminFeatureGate } from "./middleware/adminFeatureGate.middleware";
 import { env } from "./config/env";
 import { csrfProtection } from "./middleware/csrf.middleware";
@@ -170,6 +171,8 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
   app.use(adminFeatureGate, csrfProtection, createAdminDlqRouter());
   // Admin cross-entity reporting: POST /api/admin/reports/query, /api/admin/reports/saved
   app.use(adminFeatureGate, csrfProtection, createAdminReportRouter());
+  // Admin evidence ops & XDR diagnostics: /api/admin/diagnostics/xdr, /api/admin/evidence/quarantine, /api/admin/evidence/reverify
+  app.use(adminFeatureGate, csrfProtection, createAdminEvidenceRouter());
 
   // Error handler is registered last so it catches errors from all routes,
   // including any routes added to the app after createApp() returns.
