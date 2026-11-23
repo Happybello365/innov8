@@ -11,7 +11,7 @@ import {
   checkNotificationPermissions,
 } from './services/notification.service';
 import { AppNavigator } from './navigation/AppNavigator';
-import { UpdateBanner } from './components/UpdateBanner';
+import { AppVersionGate } from './components/AppVersionGate';
 import { initCrashReporting } from './services/crashReporting.service';
 import { BiometricLockOverlay } from './components/BiometricLockOverlay';
 import { useBiometricLock } from './hooks/useBiometricLock';
@@ -61,9 +61,10 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AppNavigator isAuthenticated={!!token} isAdmin={isAdmin} />
-        <UpdateBanner />
-        {locked && <BiometricLockOverlay onUnlock={unlock} />}
+        <AppVersionGate>
+          <AppNavigator isAuthenticated={!!token} isAdmin={isAdmin} />
+          {locked && <BiometricLockOverlay onUnlock={unlock} />}
+        </AppVersionGate>
         <StatusBar style={isDark ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
