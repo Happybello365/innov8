@@ -147,3 +147,98 @@ export function redactPii<T>(value: T, seen: WeakSet<object> = new WeakSet(), de
 }
 
 export { PII_FIELD_DENYLIST, EMAIL_PATTERN, PHONE_PATTERN };
+
+// ---------------------------------------------------------------------------
+// Span attribute sanitisation for OpenTelemetry breadcrumbs
+//
+// OTel span attributes accept only scalar values (string | number | boolean
+// and their arrays). `sanitizeSpanAttributes` takes a plain object whose
+// values may be of any type and returns a flat record safe to pass to
+// `span.setAttributes()`. It applies three passes:
+//
+//   1. PII field-name denylist — same list as the log redactor.
+//   2. Pattern scrub on string values — catches emails/phones in free-text.
+//   3. Secret key denylist — strips keys that look like tokens, keys, or
+//      credentials even if the value itself does not look like PII.
+//
+// Non-scalar values (objects, arrays) are coerced to JSON strings first so
+// they can still appear in traces without carrying nested PII silently.
+// ---------------------------------------------------------------------------
+
+/** Keys that should never appear in span attributes even if they pass the PII denylist. */
+const SECRET_SPAN_FIELD_DENYLIST = new Set(
+  [
+    "authorization",
+    "cookie",
+    "xcsrftoken",
+    "xapikey",
+    "token",
+    "jwt",
+    "secret",
+    "apikey",
+    "privatekey",
+    "accesstoken",
+    "refreshtoken",
+    "sessiontoken",
+    "walletsecret",
+    "seedphrase",
+    "mnemonic",
+    "password",
+    "passwordhash",
+    "pin",
+    "otp",
+    "cvv",
+    "cardnumber",
+  ].map(normalizeFieldName),
+);
+
+function isDenylistedSpanField(key: string): boolean {
+  const normalised = normalizeFieldName(key);
+  return PII_FIELD_DENYLIST.has(normalised) || SECRET_SPAN_FIELD_DENYLIST.has(normalised);
+}
+
+type SpanAttributeValue = string | number | boolean;
+type SafeSpanAttributes = Record<string, SpanAttributeValue>;
+
+/**
+ * Convert an arbitrary attributes object into a flat record of OTel-safe
+ * scalars, with PII fields redacted and secret-shaped keys stripped entirely.
+ *
+ * @param attrs - Any key/value pairs intended for a span (e.g. from req/res metadata).
+ * @returns A new object safe to pass to `span.setAttributes()`.
+ */
+export function sanitizeSpanAttributes(
+  attrs: Record<string, unknown>,
+): SafeSpanAttributes {
+  const result: SafeSpanAttributes = {};
+
+  for (const [key, rawValue] of Object.entries(attrs)) {
+    // Drop entirely — secret fields must not appear in traces at all.
+    if (isDenylistedSpanField(key)) {
+      continue;
+    }
+
+    // Coerce value to a scalar OTel supports.
+    let value: SpanAttributeValue;
+    if (typeof rawValue === "string") {
+      value = scrubPatternsInString(rawValue);
+    } else if (typeof rawValue === "number" || typeof rawValue === "boolean") {
+      value = rawValue;
+    } else if (rawValue === null || rawValue === undefined) {
+      // Omit null/undefined — OTel ignores them, but explicit omission is cleaner.
+      continue;
+    } else {
+      // Objects and arrays: JSON-serialise then scrub patterns so nested PII
+      // doesn't slip through as an opaque string blob.
+      try {
+        value = scrubPatternsInString(JSON.stringify(rawValue));
+      } catch {
+        value = "[UNSERIALIZABLE]";
+      }
+    }
+
+    result[key] = value;
+  }
+
+  return result;
+}

@@ -3,6 +3,7 @@ import { NextFunction, Request, Response } from 'express';
 import { CORRELATION_ID_HEADER, REQUEST_ID_HEADER, TracedRequest } from './correlationId.middleware';
 import { TracingHelper } from '../config/tracing';
 import { appLogger } from './logger';
+import { sanitizeSpanAttributes } from '../lib/logRedaction';
 
 /**
  * OpenTelemetry middleware that creates spans for HTTP requests
@@ -27,7 +28,7 @@ export function tracingMiddleware(
   
   const span = tracer.startSpan(`${req.method} ${route}`, {
     kind: SpanKind.SERVER,
-    attributes: {
+    attributes: sanitizeSpanAttributes({
       'http.method': req.method,
       'http.url': req.url,
       'http.target': req.url,
@@ -38,7 +39,7 @@ export function tracingMiddleware(
       'net.host.name': req.hostname,
       'correlation.id': tracedReq.correlationId,
       'request.id': tracedReq.requestId,
-    },
+    }),
   });
 
   // Set the span on the request for access in controllers/services
@@ -129,12 +130,17 @@ export function getRequestSpan(req: Request): Span | undefined {
 }
 
 /**
- * Utility to add custom attributes to the current request span
+ * Utility to add custom attributes to the current request span.
+ * String values are scrubbed for PII patterns; secret-shaped keys are dropped.
  */
 export function addRequestSpanAttribute(req: Request, key: string, value: string | number | boolean): void {
   const span = getRequestSpan(req);
   if (span) {
-    span.setAttribute(key, value);
+    const safe = sanitizeSpanAttributes({ [key]: value });
+    // Key was dropped (secret field) — do not set.
+    if (Object.prototype.hasOwnProperty.call(safe, key)) {
+      span.setAttribute(key, safe[key]);
+    }
   }
 }
 
