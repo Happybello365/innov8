@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AdminDashboardFilters } from "../AdminDashboardFilters";
+import { ForbiddenState } from "@/components/ui/ForbiddenState";
 
 interface DisputeItem {
   tradeId: string;
@@ -26,6 +27,7 @@ export function AdminDisputesView({ filters }: AdminDisputesViewProps) {
   const [disputes, setDisputes] = useState<DisputeItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const limit = 20;
@@ -34,6 +36,7 @@ export function AdminDisputesView({ filters }: AdminDisputesViewProps) {
     const fetchDisputes = async () => {
       setLoading(true);
       setError(null);
+      setForbidden(false);
       try {
         // Build query params from filters
         const params = new URLSearchParams();
@@ -45,12 +48,15 @@ export function AdminDisputesView({ filters }: AdminDisputesViewProps) {
         if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
         if (filters.dateTo) params.set("dateTo", filters.dateTo);
 
-        // Note: This endpoint needs to be created in the backend
-        // For now, we'll show the expected structure
         const response = await fetch(`/api/admin/disputes?${params.toString()}`, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });
+
+        if (response.status === 403) {
+          setForbidden(true);
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(`Failed to fetch disputes: ${response.statusText}`);
@@ -72,6 +78,17 @@ export function AdminDisputesView({ filters }: AdminDisputesViewProps) {
 
     fetchDisputes();
   }, [filters, page]);
+
+  if (forbidden) {
+    return (
+      <div className="py-6">
+        <ForbiddenState
+          title="Admin Access Required"
+          message="You do not have permission to view admin dispute records."
+        />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -103,70 +120,72 @@ export function AdminDisputesView({ filters }: AdminDisputesViewProps) {
     );
   }
 
-  if (disputes.length === 0) {
-    return (
-      <div className="rounded-lg bg-bg-elevated border border-border-default p-12 text-center">
-        <p className="text-text-secondary">No disputes found matching your filters.</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      {/* Disputes Table */}
-      <div className="overflow-x-auto rounded-lg border border-border-default">
-        <table className="w-full text-sm">
-          <thead className="bg-bg-elevated border-b border-border-default">
-            <tr>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Trade ID</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Initiator</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Reason</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Status</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {disputes.map((dispute) => (
-              <tr key={dispute.tradeId} className="border-b border-border-default hover:bg-bg-elevated/50 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-text-primary truncate">{dispute.tradeId.slice(0, 8)}...</td>
-                <td className="px-4 py-3 font-mono text-xs text-text-secondary truncate">{dispute.initiator.slice(0, 6)}...</td>
-                <td className="px-4 py-3 text-text-primary truncate">{dispute.reason}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-block px-2 py-1 rounded-full text-xs bg-status-danger/10 text-status-danger">
-                    {dispute.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-text-secondary text-xs">
-                  {new Date(dispute.createdAt).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-text-secondary">
+          Showing {disputes.length} of {total} disputes
+        </p>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between py-4">
-        <p className="text-sm text-text-secondary">
-          Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} disputes
-        </p>
-        <div className="flex gap-2">
+      {disputes.length === 0 ? (
+        <div className="rounded-lg bg-surface-1 border border-border-default p-12 text-center">
+          <p className="text-text-secondary">No disputes found matching current filters.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border-default">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-surface-2 text-text-secondary font-medium">
+              <tr>
+                <th className="px-4 py-3">Trade ID</th>
+                <th className="px-4 py-3">Initiator</th>
+                <th className="px-4 py-3">Reason</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Created</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-default">
+              {disputes.map((dispute) => (
+                <tr key={dispute.tradeId} className="hover:bg-surface-1/50 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs">{dispute.tradeId}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{dispute.initiator}</td>
+                  <td className="px-4 py-3">{dispute.reason}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-surface-2 text-text-primary">
+                      {dispute.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-text-secondary">
+                    {new Date(dispute.createdAt).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {total > limit && (
+        <div className="flex items-center justify-end gap-2 mt-4">
           <button
-            onClick={() => setPage(Math.max(1, page - 1))}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-2 rounded-md border border-border-default text-text-secondary hover:text-text-primary disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+            className="px-3 py-1.5 rounded-md border border-border-default disabled:opacity-40"
           >
-            ← Previous
+            Previous
           </button>
+          <span className="text-sm text-text-secondary">
+            Page {page} of {Math.ceil(total / limit)}
+          </span>
           <button
-            onClick={() => setPage(page + 1)}
-            disabled={page * limit >= total}
-            className="px-3 py-2 rounded-md border border-border-default text-text-secondary hover:text-text-primary disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page >= Math.ceil(total / limit)}
+            className="px-3 py-1.5 rounded-md border border-border-default disabled:opacity-40"
           >
-            Next →
+            Next
           </button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -111,9 +111,15 @@ export function AppTopNav({
       <div className="ml-auto flex items-center gap-3">
         {/* Admin role indicator */}
         {isAdmin && (
-          <Badge variant="locked" size="sm">
-            Admin
-          </Badge>
+          <Link
+            href="/admin/dashboard"
+            title="Admin Dashboard"
+            className="hover:opacity-80 transition-opacity focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 rounded"
+          >
+            <Badge variant="locked" size="sm">
+              Admin
+            </Badge>
+          </Link>
         )}
 
         {/* Notification bell */}

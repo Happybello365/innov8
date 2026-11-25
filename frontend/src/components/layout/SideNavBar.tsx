@@ -12,6 +12,7 @@ export interface SideNavBarProps {
   collapsed?: boolean;
   walletAddress?: string | null;
   onClose?: () => void;
+  isAdmin?: boolean;
 }
 
 interface NavItem {
@@ -105,6 +106,23 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
+const ADMIN_NAV_ITEM: NavItem = {
+  href: "/admin/dashboard",
+  label: "Admin",
+  icon: (
+    <svg
+      className="w-4 h-4"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
+      <path d="M8 1a7 7 0 100 14A7 7 0 008 1z" />
+      <path d="M8 4v4l3 2" />
+    </svg>
+  ),
+};
+
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-6)}`;
 }
@@ -116,7 +134,10 @@ export function SideNavBar({
   collapsed = false,
   walletAddress,
   onClose,
+  isAdmin = false,
 }: SideNavBarProps) {
+  const visibleNavItems = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
+
   return (
     <aside
       className={`${
@@ -165,7 +186,7 @@ export function SideNavBar({
         aria-label="Main navigation"
       >
         <ul className="space-y-1 px-2">
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive =
               activePath === item.href || activePath.startsWith(`${item.href}/`);
 

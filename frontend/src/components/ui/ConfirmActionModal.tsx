@@ -3,12 +3,13 @@
 /**
  * ConfirmActionModal — accessible destructive-action confirmation dialog.
  *
- * Keyboard flow (#61):
+ * Keyboard flow (#61, #494):
  *  - Focus is auto-moved to the Cancel button when the dialog opens so the
  *    safe default is reachable without any keyboard input.
  *  - Tab cycles only within the modal (Radix Dialog provides the focus trap).
  *  - Shift+Tab traverses in reverse order.
  *  - Escape dismisses without confirming (Radix Dialog default).
+ *  - Focus is restored to the triggering element after the dialog closes.
  *
  * ARIA:
  *  - role="alertdialog" signals that the dialog contains a warning.
@@ -68,16 +69,24 @@ export function ConfirmActionModal({
   loading = false,
 }: ConfirmActionModalProps) {
   const cancelRef = React.useRef<HTMLButtonElement>(null);
+  const previousActiveElementRef = React.useRef<HTMLElement | null>(null);
 
   // Move focus to Cancel (safe default) as soon as the dialog opens.
-  // Radix Dialog owns the focus trap; we only direct initial focus.
+  // Restore focus to previousActiveElement when dialog closes.
   React.useEffect(() => {
     if (open) {
+      previousActiveElementRef.current = (document.activeElement as HTMLElement) || null;
       // Defer one tick so Radix has time to mount the content.
       const raf = requestAnimationFrame(() => {
         cancelRef.current?.focus();
       });
       return () => cancelAnimationFrame(raf);
+    } else if (previousActiveElementRef.current) {
+      const el = previousActiveElementRef.current;
+      previousActiveElementRef.current = null;
+      requestAnimationFrame(() => {
+        el.focus();
+      });
     }
   }, [open]);
 
