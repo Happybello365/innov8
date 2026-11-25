@@ -1,0 +1,110 @@
+# Cost budget and anomaly alerts.
+#
+# Billing adapters must expose service_cost_usd_total and
+# service_monthly_cost_budget_usd for each monitored service. See
+# docs/cost-anomaly-alerts.md for the metric contract.
+
+groups:
+  - name: service_cost_alerts
+    interval: 1h
+    rules:
+      - record: service:cost:expected
+        expr: |
+          label_replace(vector(1), "service", "database", "", "")
+          or label_replace(vector(1), "service", "rpc", "", "")
+          or label_replace(vector(1), "service", "storage", "", "")
+          or label_replace(vector(1), "service", "cdn", "", "")
+          or label_replace(vector(1), "service", "mobile_build", "", "")
+      - record: service:cost_usd:month_to_date
+        expr: sum by (service) (service_cost_usd_total)
+      - record: service:cost_usd:week
+        expr: sum by (service) (increase(service_cost_usd_total[7d]))
+      - record: service:cost_usd:previous_week
+        expr: sum by (service) (increase(service_cost_usd_total[7d] offset 7d))
+
+      - alert: ServiceCostBudgetWarning
+        expr: |
+          (service:cost_usd:month_to_date / on (service) service_monthly_cost_budget_usd >= 0.8)
+          and on (service) (service_monthly_cost_budget_usd > 0)
+          and on (service)
+          (service:cost_usd:month_to_date / on (service) service_monthly_cost_budget_usd < 1)
+        for: 1h
+        labels:
+          severity: ticket
+          category: cost
+          runbook: docs/runbooks/cost-anomaly.md
+        annotations:
+          summary: "{{ $labels.service }} cost is approaching its monthly budget"
+          description: "{{ $labels.service }} has used {{ $value | humanizePercentage }} of its monthly USD budget."
+
+      - alert: ServiceCostBudgetMissing
+        expr: |
+          service:cost:expected
+          unless on (service) service_monthly_cost_budget_usd
+        for: 1h
+        labels:
+          severity: ticket
+          category: cost
+          runbook: docs/runbooks/cost-anomaly.md
+        annotations:
+          summary: "{{ $labels.service }} has no configured cost budget"
+          description: "No positive monthly USD budget metric is available for {{ $labels.service }}."
+
+      - alert: ServiceCostBudgetInvalid
+        expr: |
+          service_monthly_cost_budget_usd{service=~"database|rpc|storage|cdn|mobile_build"} <= 0
+        for: 1h
+        labels:
+          severity: ticket
+          category: cost
+          runbook: docs/runbooks/cost-anomaly.md
+        annotations:
+          summary: "{{ $labels.service }} has an invalid cost budget"
+          description: "{{ $labels.service }} must have a positive monthly USD budget."
+
+      - alert: ServiceCostBudgetExceeded
+        expr: |
+          (service:cost_usd:month_to_date / on (service) service_monthly_cost_budget_usd >= 1)
+          and on (service) (service_monthly_cost_budget_usd > 0)
+        for: 30m
+        labels:
+          severity: ticket
+          category: cost
+          runbook: docs/runbooks/cost-anomaly.md
+        annotations:
+          summary: "{{ $labels.service }} cost exceeded its monthly budget"
+          description: "{{ $labels.service }} has used {{ $value | humanizePercentage }} of its monthly USD budget."
+
+      - alert: ServiceCostAnomaly
+        expr: |
+          (
+            service:cost_usd:week
+            > 1.5 * on (service) service:cost_usd:previous_week
+          )
+          and on (service)
+          (
+            service:cost_usd:week
+            - on (service) service:cost_usd:previous_week
+            >= 5
+          )
+        for: 6h
+        labels:
+          severity: ticket
+          category: cost
+          runbook: docs/runbooks/cost-anomaly.md
+        annotations:
+          summary: "{{ $labels.service }} costs increased sharply"
+          description: "{{ $labels.service }} rolling 7-day spend is {{ $value | humanize }} USD; investigate the provider bill and usage trend."
+
+      - alert: ServiceCostMetricsMissing
+        expr: |
+          service:cost:expected
+          unless on (service) service:cost_usd:month_to_date
+        for: 1h
+        labels:
+          severity: ticket
+          category: cost
+          runbook: docs/runbooks/cost-anomaly.md
+        annotations:
+          summary: "{{ $labels.service }} cost data is missing"
+          description: "Prometheus has no current-month spend metric for expected service {{ $labels.service }}."
