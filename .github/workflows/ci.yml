@@ -103,6 +103,17 @@ jobs:
 
           # Promotion must reference an immutable digest, never a mutable tag.
           [ -n "$SOURCE_IMAGE" ] || fail "SOURCE_IMAGE must be set"
+          [[ "$SOURCE_IMAGE" != *:*@* ]] || fail "SOURC
+        env:
+          SOURCE_IMAGE: ${{ matrix.image }}
+          SOURCE_DIGEST: ${{ vars.PROMOTE_SOURCE_DIGEST || '' }}
+          TARGET_ENVIRONMENT: ${{ vars.PROMOTE_TARGET_ENVIRONMENT || 'staging' }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          # Promotion must reference an immutable digest, never a mutable tag.
+          [ -n "$SOURCE_IMAGE" ] || fail "SOURCE_IMAGE must be set"
           [[ "$SOURCE_IMAGE" != *:*@* ]] || fail "SOURCE_IMAGE must not combine a tag with a digest"
           [[ "$SOURCE_IMAGE" != *:latest ]] || fail "SOURCE_IMAGE must not use the mutable 'latest' tag"
 

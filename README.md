@@ -307,6 +307,14 @@ e window before deciding.
 
 Vulnerability reports are handled under the timelines below. All times are measured from the moment a report is received through GitHub's private vulnerability reporting channel described in [SECURITY.md](./SECURITY.md). Reports are triaged by the security maintainers on rotation; the reporter is kept informed at each stage.
 
+### Issue triage and contribution workflow
+
+See the [Contributor Issue Triage Guide](./docs/contributor-issue-triage.md)
+for issue labels, area ownership, severity and response targets, and the
+stale-issue policy before claiming or triaging an issue.
+
+### Admin route development
+
 #### Severity tiers and SLA targets
 
 | Tier | Definition (examples) | Acknowledgement | Initial response / triage | Remediation target | Public disclosure |

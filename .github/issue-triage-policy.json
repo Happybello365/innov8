@@ -1,0 +1,238 @@
+{
+  "version": 1,
+  "labels": [
+    {
+      "name": "bug",
+      "color": "d73a4a",
+      "description": "Something isn't working",
+      "group": "type"
+    },
+    {
+      "name": "enhancement",
+      "color": "a2eeef",
+      "description": "New feature or request",
+      "group": "type"
+    },
+    {
+      "name": "documentation",
+      "color": "0075ca",
+      "description": "Improvements or additions to documentation",
+      "group": "type"
+    },
+    {
+      "name": "question",
+      "color": "d876e3",
+      "description": "Further information is requested",
+      "group": "type"
+    },
+    {
+      "name": "security",
+      "color": "ededed",
+      "description": "Security hardening or a non-sensitive security concern",
+      "group": "type"
+    },
+    {
+      "name": "accessibility",
+      "color": "f143ab",
+      "description": "Barrier affecting people with disabilities",
+      "group": "type"
+    },
+    {
+      "name": "area:contracts",
+      "color": "5319e7",
+      "description": "Soroban contracts in contracts/",
+      "group": "area"
+    },
+    {
+      "name": "area:backend",
+      "color": "1d76db",
+      "description": "Backend API and services in backend/",
+      "group": "area"
+    },
+    {
+      "name": "area:frontend",
+      "color": "0075ca",
+      "description": "Web application in frontend/",
+      "group": "area"
+    },
+    {
+      "name": "area:mobile",
+      "color": "7057ff",
+      "description": "Mobile application in mobile/",
+      "group": "area"
+    },
+    {
+      "name": "area:infra",
+      "color": "006b75",
+      "description": "Infrastructure, CI workflows, and repository tooling",
+      "group": "area"
+    },
+    {
+      "name": "severity:critical",
+      "color": "b60205",
+      "description": "Fund loss, data loss, active exploit, or total outage",
+      "group": "severity"
+    },
+    {
+      "name": "severity:high",
+      "color": "d93f0b",
+      "description": "Core workflow broken or blocked with no workaround",
+      "group": "severity"
+    },
+    {
+      "name": "severity:medium",
+      "color": "fbca04",
+      "description": "Degraded behaviour with a documented workaround",
+      "group": "severity"
+    },
+    {
+      "name": "severity:low",
+      "color": "0e8a16",
+      "description": "Documentation, cosmetic, or low-impact request",
+      "group": "severity"
+    },
+    {
+      "name": "needs-triage",
+      "color": "fbca04",
+      "description": "Newly opened and awaiting classification by the triage lead",
+      "group": "status"
+    },
+    {
+      "name": "needs-info",
+      "color": "d876e3",
+      "description": "Waiting on the reporter for reproduction details",
+      "group": "status"
+    },
+    {
+      "name": "confirmed",
+      "color": "0e8a16",
+      "description": "Reproduced and accepted by a maintainer",
+      "group": "status"
+    },
+    {
+      "name": "blocked",
+      "color": "5319e7",
+      "description": "Waiting on a linked dependency or maintainer decision",
+      "group": "status"
+    },
+    {
+      "name": "stale",
+      "color": "6e7781",
+      "description": "No recent activity; scheduled for closure unless updated",
+      "group": "status"
+    },
+    {
+      "name": "good first issue",
+      "color": "7057ff",
+      "description": "Good for newcomers",
+      "group": "contributor"
+    },
+    {
+      "name": "help wanted",
+      "color": "008672",
+      "description": "Extra attention is needed",
+      "group": "contributor"
+    },
+    {
+      "name": "Stellar Wave",
+      "color": "5555ff",
+      "description": "Issues in the Stellar Wave program",
+      "group": "contributor"
+    },
+    {
+      "name": "duplicate",
+      "color": "cfd3d7",
+      "description": "This issue or pull request already exists",
+      "group": "resolution"
+    },
+    {
+      "name": "invalid",
+      "color": "e4e669",
+      "description": "This doesn't seem right",
+      "group": "resolution"
+    },
+    {
+      "name": "wontfix",
+      "color": "ffffff",
+      "description": "This will not be worked on",
+      "group": "resolution"
+    }
+  ],
+  "severities": {
+    "critical": {
+      "label": "severity:critical",
+      "firstResponseHours": 4,
+      "triageBusinessDays": 1,
+      "updateEveryHours": 24,
+      "targetResolutionDays": 3
+    },
+    "high": {
+      "label": "severity:high",
+      "firstResponseHours": 8,
+      "triageBusinessDays": 2,
+      "updateEveryHours": 48,
+      "targetResolutionDays": 7
+    },
+    "medium": {
+      "label": "severity:medium",
+      "firstResponseHours": 16,
+      "triageBusinessDays": 5,
+      "updateEveryHours": 168,
+      "targetResolutionDays": 30
+    },
+    "low": {
+      "label": "severity:low",
+      "firstResponseHours": 24,
+      "triageBusinessDays": 10,
+      "updateEveryHours": 336,
+      "targetResolutionDays": 90
+    }
+  },
+  "ownership": [
+    {
+      "role": "Contracts maintainer",
+      "label": "area:contracts",
+      "paths": ["contracts/**"]
+    },
+    {
+      "role": "Backend maintainer",
+      "label": "area:backend",
+      "paths": ["backend/**"]
+    },
+    {
+      "role": "Frontend maintainer",
+      "label": "area:frontend",
+      "paths": ["frontend/**"]
+    },
+    {
+      "role": "Mobile maintainer",
+      "label": "area:mobile",
+      "paths": ["mobile/**"]
+    },
+    {
+      "role": "Infrastructure maintainer",
+      "label": "area:infra",
+      "paths": ["infra/**", ".github/workflows/**", "scripts/**"]
+    },
+    {
+      "role": "Documentation maintainer",
+      "label": "documentation",
+      "paths": ["docs/**", "README.md", "SECURITY.md"]
+    }
+  ],
+  "stale": {
+    "needsInfoAfterDays": 14,
+    "needsInfoCloseAfterDays": 7,
+    "inactiveAfterDays": 60,
+    "closeAfterDays": 14,
+    "exemptLabels": [
+      "security",
+      "severity:critical",
+      "severity:high",
+      "blocked",
+      "good first issue",
+      "help wanted",
+      "Stellar Wave"
+    ]
+  }
+}
