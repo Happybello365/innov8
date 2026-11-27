@@ -12,6 +12,30 @@ export interface SweepResult {
   errors: number;
 }
 
+/**
+ * Per-trade information returned by the sweep preview. No PII is included —
+ * `buyerAddress` and `sellerAddress` are Stellar public keys that appear in
+ * blockchain records and are not secret.
+ */
+export interface SweepPreviewTrade {
+  tradeId: string;
+  currentStatus: TradeStatus;
+  amountUsdc: string;
+  expiresAt: Date;
+  /** True when the trade is FUNDED, meaning an on-chain escrow refund is owed. */
+  requiresRefund: boolean;
+}
+
+export interface SweepPreviewResult {
+  batchSize: number;
+  wouldExpire: number;
+  /** Number of FUNDED trades in the batch, each requiring an escrow refund. */
+  wouldRefund: number;
+  trades: SweepPreviewTrade[];
+  preview: true;
+  asOf: string;
+}
+
 /** Non-terminal statuses eligible for expiry sweep. */
 const EXPIRABLE_STATUSES: TradeStatus[] = [
   TradeStatus.CREATED,
@@ -21,6 +45,49 @@ const EXPIRABLE_STATUSES: TradeStatus[] = [
 
 export class TradeExpiryService {
   constructor(private readonly db: PrismaClient = defaultPrisma) {}
+
+  /**
+   * Returns the trades that would be expired by `sweepExpiredTrades(batchSize)`
+   * without writing anything to the database. The result matches the same
+   * ordering and limit used by the real sweep so the admin sees exactly what
+   * the next execution would do.
+   */
+  async previewSweep(batchSize = 100): Promise<SweepPreviewResult> {
+    const now = new Date();
+
+    const stale = await this.db.trade.findMany({
+      where: {
+        expiresAt: { lte: now },
+        status: { in: EXPIRABLE_STATUSES },
+        expiredAt: null,
+      },
+      take: batchSize,
+      select: {
+        tradeId: true,
+        amountUsdc: true,
+        status: true,
+        expiresAt: true,
+      },
+      orderBy: { expiresAt: 'asc' },
+    });
+
+    const trades: SweepPreviewTrade[] = stale.map((t) => ({
+      tradeId: t.tradeId,
+      currentStatus: t.status,
+      amountUsdc: t.amountUsdc,
+      expiresAt: t.expiresAt!,
+      requiresRefund: t.status === TradeStatus.FUNDED,
+    }));
+
+    return {
+      batchSize,
+      wouldExpire: trades.length,
+      wouldRefund: trades.filter((t) => t.requiresRefund).length,
+      trades,
+      preview: true,
+      asOf: now.toISOString(),
+    };
+  }
 
   /**
    * Scans for trades whose `expiresAt` has passed and whose status is still

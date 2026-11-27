@@ -82,10 +82,10 @@ function normalizeBlob(value: unknown): StoredPreferenceBlob {
  * Determines whether the current moment falls inside quiet hours.
  *
  * @param quietHours - The stored quiet-hours preference.
- * @returns `true` if right now is within the quiet window.
+ * @param now - Reference time (defaults to the current time).
+ * @returns `true` if `now` is within the quiet window.
  */
-export function isInQuietHours(quietHours: QuietHoursPreference): boolean {
-  const now = new Date();
+export function isInQuietHours(quietHours: QuietHoursPreference, now: Date = new Date()): boolean {
   // Get current HH:MM in the user's timezone
   const formatter = new Intl.DateTimeFormat("en-GB", {
     timeZone: quietHours.timezone,

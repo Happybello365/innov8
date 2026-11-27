@@ -7,9 +7,12 @@ import { signTransaction } from "@stellar/freighter-api";
 import { useAuth } from "@/hooks/useAuth";
 import { useTradeDetail } from "@/hooks/useTradeDetail";
 import { useWallet } from "@/hooks/useWallet";
+import { useWalletGuard } from "@/hooks/useWalletGuard";
 import { api, ApiError } from "@/lib/api";
 import { apiConfig } from "@/lib/api";
-import { TxSummaryModal, type TxSummaryItem } from "@/components/ui/TxSummaryModal";
+import { TxSummaryModal, type TxSummaryItem, type TxOperationDetail } from "@/components/ui/TxSummaryModal";
+import { TradeNotFoundState } from "@/components/trade/TradeNotFoundState";
+import { LossRatioExplanation } from "@/components/trade/LossRatioExplanation";
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleString("en-US", {
@@ -113,13 +116,90 @@ interface PendingAction {
   label: string;
   unsignedXdr: string;
   summaryItems: TxSummaryItem[];
+  operationDetails: TxOperationDetail[];
+}
+
+/**
+ * Build heuristic operation details from the action label and trade.
+ * We cannot fully decode arbitrary XDR on the client without the full SDK,
+ * so we produce a structured description derived from the known action type. (#483)
+ */
+function buildOperationDetails(
+  actionLabel: string,
+  trade: {
+    tradeId: string;
+    amountCngn: string;
+    buyerAddress: string;
+    sellerAddress: string;
+    status: string;
+  },
+): TxOperationDetail[] {
+  const baseFields: TxSummaryItem[] = [
+    { label: "Contract", value: "Amana Escrow (Soroban)" },
+    { label: "Trade ID", value: trade.tradeId },
+  ];
+
+  const actionMap: Record<string, TxOperationDetail[]> = {
+    "Deposit Funds": [
+      {
+        type: "invokeHostFunction",
+        fields: [
+          ...baseFields,
+          { label: "Function", value: "deposit" },
+          { label: "Amount", value: `${trade.amountCngn} cNGN` },
+          { label: "From (buyer)", value: trade.buyerAddress },
+        ],
+      },
+    ],
+    "Confirm Delivery": [
+      {
+        type: "invokeHostFunction",
+        fields: [
+          ...baseFields,
+          { label: "Function", value: "confirm_delivery" },
+          { label: "Confirming party", value: trade.buyerAddress },
+        ],
+      },
+    ],
+    "Release Funds": [
+      {
+        type: "invokeHostFunction",
+        fields: [
+          ...baseFields,
+          { label: "Function", value: "release_funds" },
+          { label: "Amount", value: `${trade.amountCngn} cNGN` },
+          { label: "Recipient (seller)", value: trade.sellerAddress },
+        ],
+      },
+    ],
+    "Initiate Dispute": [
+      {
+        type: "invokeHostFunction",
+        fields: [
+          ...baseFields,
+          { label: "Function", value: "initiate_dispute" },
+          { label: "Current status", value: trade.status },
+        ],
+      },
+    ],
+  };
+
+  return actionMap[actionLabel] ?? [
+    {
+      type: "invokeHostFunction",
+      fields: [
+        ...baseFields,
+        { label: "Action", value: actionLabel },
+      ],
+    },
+  ];
 }
 
 export default function TradeDetailPage() {
   const params = useParams<{ id: string }>();
   const tradeId = params?.id ?? "UNKNOWN";
 
-  const { token, address, isAuthenticated } = useAuth();
+  const { token, address, isAuthenticated, isWalletConnected } = useAuth();
   const { trade, loading, error, refetch } = useTradeDetail(tradeId);
   const { balance, asset } = useWallet();
 
@@ -129,6 +209,12 @@ export default function TradeDetailPage() {
 
   // #71 — pending action waits in state until user confirms in TxSummaryModal.
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+
+  // #484 — detect wallet disconnection mid-submit to avoid duplicate transactions.
+  const { disconnectedMidSubmit, clearDisconnectFlag } = useWalletGuard({
+    isSubmitting: actionLoading,
+    isWalletConnected: isWalletConnected,
+  });
 
   const role: UserRole = trade
     ? deriveRole(address, trade.buyerAddress, trade.sellerAddress)
@@ -153,8 +239,9 @@ export default function TradeDetailPage() {
     try {
       const { unsignedXdr } = await apiCall();
       const summaryItems = buildSummaryItems(label, trade, role);
+      const operationDetails = buildOperationDetails(label, trade);
       // Stash the XDR; the modal will be opened via pendingAction state.
-      setPendingAction({ label, unsignedXdr, summaryItems });
+      setPendingAction({ label, unsignedXdr, summaryItems, operationDetails });
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -237,6 +324,7 @@ export default function TradeDetailPage() {
         }}
         actionLabel={pendingAction?.label ?? ""}
         items={pendingAction?.summaryItems ?? []}
+        operationDetails={pendingAction?.operationDetails}
         onConfirm={() => void onConfirmSign()}
         loading={actionLoading}
       />
@@ -326,23 +414,45 @@ export default function TradeDetailPage() {
             <InfoCard title="Seller" value={formatAddress(trade.sellerAddress)} helper="Seller wallet address" />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <InfoCard
-              title="Buyer Loss Ratio"
-              value={`${(trade.buyerLossBps / 100).toFixed(2)}%`}
-              helper="Buyer's share of loss"
-            />
-            <InfoCard
-              title="Seller Loss Ratio"
-              value={`${(trade.sellerLossBps / 100).toFixed(2)}%`}
-              helper="Seller's share of loss"
-            />
-          </div>
+          {/* #489 — Loss-ratio explanation visualization */}
+          <LossRatioExplanation
+            buyerLossBps={trade.buyerLossBps}
+            sellerLossBps={trade.sellerLossBps}
+            totalAmount={
+              trade.amountCngn ? parseFloat(trade.amountCngn) : undefined
+            }
+            amountUnit="cNGN"
+            buyerLabel={`Buyer (${formatAddress(trade.buyerAddress)})`}
+            sellerLabel={`Seller (${formatAddress(trade.sellerAddress)})`}
+          />
 
           {/* Action feedback */}
           {actionError && (
             <div className="rounded-lg border border-status-danger/20 bg-red-500/10 px-4 py-3 text-sm text-status-danger">
               {actionError}
+            </div>
+          )}
+          {/* #484 — wallet disconnected mid-submit: preserve form, surface recoverable error */}
+          {disconnectedMidSubmit && (
+            <div
+              role="alert"
+              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm"
+            >
+              <p className="font-semibold text-amber-400">Wallet disconnected during submission</p>
+              <p className="mt-1 text-text-secondary">
+                Your wallet disconnected before the transaction was signed. No funds were moved.
+                Reconnect your wallet and try again — your trade details are preserved.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  clearDisconnectFlag();
+                  setActionError(null);
+                }}
+                className="mt-2 text-xs underline text-amber-400 hover:text-amber-300"
+              >
+                Dismiss
+              </button>
             </div>
           )}
           {actionSuccess && (
@@ -424,11 +534,7 @@ export default function TradeDetailPage() {
       )}
 
       {/* Not found */}
-      {!loading && !error && !trade && (
-        <div className="rounded-lg border border-border-default bg-bg-card dark:bg-surface-1 p-8 text-center">
-          <p className="text-text-muted">Trade not found</p>
-        </div>
-      )}
+      {!loading && !error && !trade && <TradeNotFoundState tradeId={tradeId} />}
     </div>
   );
 }

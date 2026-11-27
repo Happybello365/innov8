@@ -8,6 +8,7 @@ import { createTradeEvidenceRouter } from "./trade.evidence.routes";
 import { createTradeExportRouter } from "./trade.export.routes";
 import { createTradePreviewRouter } from "./trade.preview.routes";
 import { createTradeDiagnosticRouter } from "./trade.diagnostic.routes";
+import { createTradeArchiveRouter } from "./trade.archive.routes";
 import { createEscrowReleaseRouter } from "./escrow.release.routes";
 import { createEscrowScheduleRouter } from "./escrow.schedule.routes";
 import { createTradeManifestRouter } from "./trade.manifest.routes";
@@ -73,6 +74,7 @@ export function createPublicApiRouter(): Router {
   router.use("/trades", createTradeExportRouter());
   router.use("/trades", createTradePreviewRouter());
   router.use("/trades", createTradeDiagnosticRouter());
+  router.use("/trades", createTradeArchiveRouter());
   router.use("/trades", createTradeTemplateRouter());
   router.use("/trades", createTradeWatchlistRouter());
   router.use("/trades", createTradeEvidenceRouter());

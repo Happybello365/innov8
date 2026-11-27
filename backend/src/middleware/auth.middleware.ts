@@ -2,6 +2,7 @@ import { Response, NextFunction } from "express";
 import { AuthService, AuthRequest } from "../services/auth.service";
 import { isAppError } from "../errors/errorCodes";
 import { AuthHelper } from "../lib/authHelper";
+import { sessionAnomalyService } from "../services/sessionAnomaly.service";
 
 export { AuthRequest };
 
@@ -33,5 +34,11 @@ export const authMiddleware = async (
   }
 
   req.user = user;
+
+  // Session anomaly detection (issue #457): fire-and-forget, never blocks.
+  if (user) {
+    void sessionAnomalyService.inspect(req, user).catch(() => undefined);
+  }
+
   next();
 };

@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  checkForUpdate,
   dismissUpdateForSession,
   isUpdateDismissed,
   type UpdateInfo,
@@ -13,17 +12,18 @@ import {
  * Dismissible "new version available" banner (issue #266). Checks once on
  * mount; once dismissed it stays hidden for the rest of the session.
  */
-export function UpdateBanner(): React.JSX.Element | null {
+export function UpdateBanner({ update }: { update: UpdateInfo }): React.JSX.Element | null {
   const insets = useSafeAreaInsets();
-  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [dismissed, setDismissed] = useState(isUpdateDismissed);
 
-  useEffect(() => {
-    if (isUpdateDismissed()) return;
-    let cancelled = false;
-    void checkForUpdate().then((info) => {
-      if (!cancelled && !isUpdateDismissed()) setUpdate(info);
-    });
-    return () => {
+  if (dismissed) return null;
+
+  const dismiss = () => {
+    dismissUpdateForSession();
+    setDismissed(true);
+  };
+
+  return () => {
       cancelled = true;
     };
   }, []);
@@ -44,7 +44,7 @@ export function UpdateBanner(): React.JSX.Element | null {
       <Text style={styles.text}>Version {update.latestVersion} is available.</Text>
       <View style={styles.actions}>
         {update.storeUrl ? (
-          <TouchableOpacity onPress={() => void Linking.openURL(update.storeUrl!)} testID="update-banner-open">
+          <TouchableOpacity onPress={() => void Linking.openURL(update.storeUrl!).catch(() => undefined)} testID="update-banner-open">
             <Text style={styles.action}>Update</Text>
           </TouchableOpacity>
         ) : null}
