@@ -21,6 +21,68 @@ retryAsync(operation, options)
 
 ---
 
+## Path Payments (NGN → cNGN) — Plain-Language Guide
+
+A **path payment** lets a buyer pay in NGN while the seller receives cNGN
+(or vice versa). The network finds a route between the two assets and
+converts along the way. Here is what users should understand.
+
+### What happens when you pay
+
+1. You send NGN from your wallet.
+2. The network finds a path to cNGN (directly, or through intermediate assets).
+3. Each hop converts at the current market rate.
+4. The seller receives cNGN in their wallet.
+
+### Slippage (in plain terms)
+
+Slippage is the gap between the rate you saw when you started and the rate
+you actually got. Prices move while your payment is in flight, and each hop
+in the path can shift the final amount.
+
+- **You set a maximum you are willing to lose** (the slippage tolerance).
+- If the final amount would fall below that limit, the payment is **rejected
+  instead of executed** — you are not charged for a bad rate.
+- A tighter tolerance means fewer surprises but more failed attempts when
+  the market is moving. A looser tolerance means the payment is more likely
+  to go through, but you may receive slightly less.
+
+### Fees
+
+Path payments can involve more than one fee:
+
+- **Network fee** — a small fixed cost to submit the transaction on-chain.
+- **Path/conversion cost** — the spread taken at each hop as NGN is
+  converted toward cNGN. More hops generally means a slightly higher cost.
+- **Platform fee** — any fee innov8 charges for facilitating the payment,
+  shown before you confirm.
+
+All fees are disclosed on the confirmation screen before you approve the
+payment. If the quoted total changes beyond your slippage tolerance, the
+payment fails rather than silently costing more.
+
+### Retry behavior and failure states
+
+Path payments are **not blindly retried**, because a retry could move funds
+twice. Instead:
+
+- **Transient failures** (network hiccups, rate limits, temporary upstream
+  errors) are retried automatically using the rules in the decision table
+  below, up to the configured retry budget.
+- **Non-retryable failures** (invalid request, insufficient balance,
+  slippage exceeded, unknown errors) stop immediately and surface a clear
+  message to the user.
+- **Slippage exceeded** — the payment is rejected; no funds move. The user
+  can review the new rate and try again.
+- **Budget exceeded** — if retries would run past the time budget, the
+  payment is abandoned early rather than left hanging.
+- **Exhausted retries** — after the maximum attempts, the last error is
+  shown and the user can retry manually.
+
+When in doubt, the safe default is: **fail visibly, never double-charge.**
+
+---
+
 ## Error Classification Decision Table
 
 Errors are evaluated in priority order. The first matching rule wins.
@@ -135,9 +197,4 @@ The retry wrapper was tested with the following injected-failure scenarios:
 |---------------------------------|---------------------|-----------------------------------|
 | 2× ECONNREFUSED                 | 3                   | Recovers on 3rd attempt           |
 | Supabase 40001 (serialization)  | 2                   | Recovers on 2nd attempt           |
-| HTTP 429 (rate limit)           | 3                   | Recovers on 3rd attempt           |
-| Supabase 57P01 (admin shutdown) | 2                   | Recovers on 2nd attempt           |
-| HTTP 404 (not found)            | 1                   | Throws immediately — no retry     |
-| Sustained P1001 (4 attempts)    | 4                   | Exhausted — throws last error     |
-
-See `src/__tests__/retry.test.ts` for the full chaos test suite.
+| HTTP 429 (rate limit)           | 3                   | Recovers after backoff            |
