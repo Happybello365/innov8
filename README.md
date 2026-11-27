@@ -83,6 +83,13 @@ Deploy to the local network only after tests pass; never deploy with production 
 
 Run an OTLP-compatible collector (for example the Jaeger all-in-one container) and set `OTEL_EXPORTER_OTLP_ENDPOINT` to its HTTP endpoint. If the collector is unreachable, services log a warning and continue serving traffic; tracing is best-effort and must never block requests.
 
+### Required CI gates
+
+- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
+- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
+- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobile/`
+- **Contracts Required Gate**: `cargo test` in `contracts/amana_escrow/`
+
 ### Troubleshooting
 
 - **Port already in use**: change `API_PORT`/`WEB_PORT` in your `.env` and restart the affected service.
@@ -165,5 +172,53 @@ The mobile app must not silently fail or queue unsupported work while the device
 - Network-dependent actions (submitting escrow transactions, syncing, uploading evidence) are **disabled** while offline and surface an inline explanation to the user.
 - Only actions explicitly marked as offline-queueable are queued; all other actions are blocked with a clear message until connectivity returns.
 - When connectivity is restored, queued work is flushed and any failures are reported without leaking secrets or PII.
+
+## 📐 Architecture Decision Records
+
+Key architectural decisions are documented as ADRs in [`docs/adr/`](./docs/adr):
+
+- [ADR-001: Stellar Path Payment Architecture](./docs/adr/ADR-001-stellar-path-payment-architecture.md)
+- [ADR-002: Escrow Loss-Sharing Model](./docs/adr/ADR-002-escrow-loss-sharing-model.md)
+- [ADR-003: Off-chain vs. On-chain Data Partitioning](./docs/adr/ADR-003-offchain-vs-onchain-data-partitioning.md)
+- [ADR-004: Idempotency and Retry Strategy](./docs/adr/ADR-004-idempotency-and-retry-strategy.md)
+- [ADR-005: Frontend State Management](./docs/adr/ADR-005-frontend-state-management.md)
+
+## 🔐 Security & Operations
+
+- [Security Policy](./SECURITY.md) — privately report vulnerabilities through GitHub's private vulnerability reporting.
+- [Threat Model](./docs/threat-model.md) — reviewed quarterly and on trigger events; see §8 for cadence/ownership and `docs/threat-model-review-checklist.md` for the reviewer checklist.
+- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders
+
+### Security Disclosure Triage SLA
+
+Vulnerability reports are handled under the timelines below. All times are measured from the moment a report is received through GitHub's private vulnerability reporting channel described in [SECURITY.md](./SECURITY.md). Reports are triaged by the security maintainers on rotation; the reporter is kept informed at each stage.
+
+#### Severity tiers and SLA targets
+
+| Tier | Definition (examples) | Acknowledgement | Initial response / triage | Remediation target | Public disclosure |
+| --- | --- | --- | --- | --- | --- |
+| **Critical** | Loss of escrowed funds, contract authorization bypass, private key or secret exposure | ≤ 24 hours | ≤ 48 hours | ≤ 7 days | Coordinated, ≤ 7 days after fix ships |
+| **High** | Privilege escalation, replay of settlement/webhook events, PII exposure | ≤ 48 hours | ≤ 3 business days | ≤ 14 days | Coordinated, ≤ 14 days after fix ships |
+| **Medium** | Denial of service, information disclosure without PII, misconfiguration | ≤ 3 business days | ≤ 5 business days | ≤ 30 days | Coordinated, ≤ 30 days after fix ships |
+| **Low** | Hardening, defense-in-depth, documentation gaps | ≤ 5 business days | ≤ 10 business days | Next scheduled release | Coordinated with the reporter |
+
+- **Acknowledgement** confirms receipt and assigns a tracking ID; it does not imply a confirmed severity.
+- **Initial response / triage** includes a severity assessment, affected components, and a remediation plan.
+- **Remediation target** is the goal for a fix merged to `main`; complex fixes may be re-scoped with the reporter and documented in the advisory.
+- **Public disclosure** is coordinated with the reporter and published as a GitHub Security Advisory once a fix is available. Reporters may request earlier disclosure; we will not publish before a fix or mitigation is available unless the reporter and maintainers agree.
+
+#### Edge cases and failure states
+
+- **Disputed severity:** If the reporter and maintainers disagree on severity, the higher tier's acknowledgement and response targets apply until consensus is reached. The rationale is recorded in the advisory.
+- **Incomplete reports:** Reports missing reproduction steps or affected versions are acknowledged within the tier target and the reporter is asked for the missing details. The triage clock pauses while awaiting the reporter; if no response is received within 14 days, the report is closed as `needs-info` and may be reopened.
+- **Third-party dependencies:** Issues in upstream dependencies (Stellar/Soroban, Next.js, Supabase, Pinata, etc.) are triaged by us, then reported upstream. Our remediation target covers applying the upstream fix or a documented mitigation; disclosure follows the upstream advisory timeline.
+- **Actively exploited issues:** Any report indicating active exploitation is escalated to Critical regardless of initial tier, and mitigation is prioritized over the standard remediation target.
+- **No PII or secrets in reports:** Do not include private keys, credentials, or personal data in reports or advisories. Redact sensitive values and share them only through the private reporting channel.
+
+#### Tracking and verification
+
+- Each report is tracked as a private security advisory with the assigned tier and due dates.
+- SLA adherence is reviewed at each security maintainer rotation handoff; breaches are recorded with a root-cause note.
+- Fixes ship with regression tests covering the reported failure path before the advisory is published.
 
 See the mobile stack documentation for the list of supported offline-queueable actions.

@@ -56,6 +56,93 @@ export function createAdminTradeBatchRouter(
 ) {
   const router = Router();
 
+  /**
+   * POST /api/admin/trades/batch/status/preview
+   *
+   * Dry-run validation of a batch trade status update. Runs every check that
+   * the real execution path runs (trade existence, valid transition, current
+   * status) but does not write anything to the database or create an audit
+   * record. The response mirrors the shape of the execution response so a
+   * single confirmation modal can display exact affected records before the
+   * admin confirms.
+   *
+   * Returns:
+   *   - `wouldSucceed` — trades that would transition successfully
+   *   - `wouldFail` — trades that would be rejected, with the reason
+   *   - `preview: true` — sentinel so callers can distinguish from live responses
+   */
+  router.post(
+    "/api/admin/trades/batch/status/preview",
+    authMiddleware,
+    batchQueryLimiter,
+    adminMiddleware,
+    adminRateLimit,
+    validateRequest({ body: batchStatusBodySchema }),
+    async (req: AuthRequest, res: Response, next) => {
+      try {
+        const { updates } = req.body as {
+          updates: { tradeId: string; status: TradeStatus }[];
+        };
+
+        const wouldSucceed: { tradeId: string; currentStatus: TradeStatus; targetStatus: TradeStatus }[] = [];
+        const wouldFail: { tradeId: string; reason: string }[] = [];
+
+        for (const { tradeId, status: targetStatus } of updates) {
+          const trade = await prisma.trade.findFirst({
+            where: {
+              OR: [
+                { tradeId },
+                {
+                  id: Number.isInteger(Number(tradeId)) ? Number(tradeId) : -1,
+                },
+              ],
+            },
+            select: { tradeId: true, status: true, version: true },
+          });
+
+          if (!trade) {
+            wouldFail.push({ tradeId, reason: "Trade not found" });
+            continue;
+          }
+
+          if (!isValidTransition(trade.status, targetStatus)) {
+            wouldFail.push({
+              tradeId,
+              reason: `Invalid transition from ${trade.status} to ${targetStatus}`,
+            });
+            continue;
+          }
+
+          wouldSucceed.push({
+            tradeId: trade.tradeId,
+            currentStatus: trade.status,
+            targetStatus,
+          });
+        }
+
+        const traceCtx = getTraceContext();
+        appLogger.info(
+          {
+            eventType: "BATCH_TRADE_STATUS_UPDATE_PREVIEW",
+            actionName: "admin.trades.batch.status.preview",
+            totalUpdates: updates.length,
+            wouldSucceedCount: wouldSucceed.length,
+            wouldFailCount: wouldFail.length,
+            adminAddress: req.user?.walletAddress,
+            traceId: traceCtx?.traceId,
+            spanId: traceCtx?.spanId,
+            timestamp: new Date().toISOString(),
+          },
+          `[AdminPreview] Batch trade status preview: ${wouldSucceed.length} would succeed, ${wouldFail.length} would fail`,
+        );
+
+        res.status(200).json({ wouldSucceed, wouldFail, preview: true });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
   router.post(
     "/api/admin/trades/batch/status",
     authMiddleware,
