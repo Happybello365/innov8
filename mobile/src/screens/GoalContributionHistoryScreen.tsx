@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/formatAmount';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -79,7 +80,7 @@ export default function GoalContributionHistoryScreen({ navigation, route }: Pro
           }
           renderItem={({ item }) => (
             <View style={styles.row} testID="contribution-row">
-              <Text style={styles.rowDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+              <Text style={styles.rowDate}>{formatDate(item.createdAt)}</Text>
               <Text style={styles.rowAmount}>+{item.amountUsdc} USDC</Text>
             </View>
           )}

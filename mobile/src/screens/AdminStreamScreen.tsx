@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/formatAmount';
 import { useEffect, useState } from 'react';
 import {
   View,
@@ -24,11 +25,7 @@ function AuditItem({ item }: { item: AdminAuditRecord }) {
       ? `${item.actorAddress.slice(0, 6)}…${item.actorAddress.slice(-4)}`
       : item.actorAddress;
 
-  const formattedDate = new Date(item.createdAt).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  const formattedDate = formatDate(item.createdAt);
 
   return (
     <View style={styles.itemCard}>
