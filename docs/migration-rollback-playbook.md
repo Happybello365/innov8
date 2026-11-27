@@ -179,3 +179,26 @@ Failures block merge for production branches (`main`).
 - PRs with risky DDL always receive a CI warning comment with remediation steps.
 - For PRs targeting `main`, risky DDL fails the migration safety workflow unless the PR has the `migration:destructive-approved` label.
 - Apply the label only after explicit DBA/on-call review, a tested `rollback.sql`, and a planned maintenance window.
+
+## Preflight & rollback manifests
+
+`scripts/migrate-safe.sh` runs `scripts/migration-preflight.mjs` before any migration is applied. It can also be run on its own:
+
+```bash
+node scripts/migration-preflight.mjs --env=production --applied=<comma-separated applied migration names>
+```
+
+It blocks the deploy (exit code `1`) when a pending migration:
+
+- is not named `<14-digit timestamp>_<name>`, reuses another pending migration's timestamp, or sorts before the latest applied migration (out-of-order deploy);
+- references a table (`ALTER TABLE`, `REFERENCES`, `CREATE INDEX ... ON`) that no earlier migration creates;
+- or when an applied migration is missing locally (drift).
+
+**Rollback manifests (required in production).** Every pending migration deployed with `--env=production`, or with `--require-rollback` set, must include a non-empty `rollback.sql` (a script that `scripts/migrate-rollback.sh --from-sql=...` can apply) or `ROLLBACK.md` (written rollback notes) next to its `migration.sql`.
+
+**Destructive DDL** (`DROP TABLE/COLUMN/TYPE`, `TRUNCATE`, `SET NOT NULL`, column `TYPE` changes) is a warning outside production. In production it blocks the deploy until a reviewer adds this line to the migration's rollback manifest:
+
+```
+destructive: acknowledged
+```
+

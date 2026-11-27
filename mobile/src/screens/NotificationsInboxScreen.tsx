@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/formatAmount';
 import { useCallback, useEffect, useState } from 'react';
 import {
   View,
@@ -47,7 +48,7 @@ function NotificationItem({
             {item.message}
           </Text>
           <Text style={[styles.time, { color: theme.textMuted }]}>
-            {new Date(item.createdAt).toLocaleString()}
+            {formatDate(item.createdAt, true)}
           </Text>
         </View>
       </View>

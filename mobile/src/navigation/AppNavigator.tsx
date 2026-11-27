@@ -1,7 +1,7 @@
-﻿import { lazy, Suspense, useEffect, useMemo, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import type { LinkingOptions, NavigationContainerRef } from '@react-navigation/native';
+import type { NavigationContainerRef } from '@react-navigation/native';
 import { ActivityIndicator, Linking, View } from 'react-native';
 
 import type { RootStackParamList } from '../types/navigation';
@@ -43,43 +43,7 @@ const AdminFeaturesScreen = lazy(
 const AdminActionSuccessScreen = lazy(
   () => import('../screens/AdminActionSuccessScreen'),
 );
-import {
-  LINK_PREFIXES,
-  LINKING_SCREEN_CONFIG,
-  parseDeepLink,
-  requiresAuth,
-} from '../constants/links';
-
 const Stack = createStackNavigator<RootStackParamList>();
-
-/**
- * Deep linking configuration (issue #261). Path <-> screen mapping is the
- * shared table in constants/links.ts so the web app and hosted
- * apple-app-site-association / assetlinks.json stay consistent.
- *
- * `getStateFromPath` runs our own parser first: an unrecognised link falls
- * through to react-navigation's default (which no-ops to the initial route
- * rather than crashing), and a link that needs auth while signed out resolves
- * to WalletConnect — useDeepLink parks the real target and resumes it on login.
- */
-function makeLinking(isAuthenticated: boolean): LinkingOptions<RootStackParamList> {
-  return {
-    prefixes: LINK_PREFIXES,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: { screens: LINKING_SCREEN_CONFIG as any },
-    getStateFromPath: (path, options) => {
-      const target = parseDeepLink(path);
-      if (target && requiresAuth(target) && !isAuthenticated) {
-        // Land on WalletConnect; useDeepLink parks the real target and
-        // resumes it once a token appears (login-then-continue).
-        return { routes: [{ name: 'WalletConnect' }] };
-      }
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const nav = require('@react-navigation/native');
-      return nav.getStateFromPath(path, options);
-    },
-  };
-}
 
 interface AppNavigatorProps {
   isAuthenticated: boolean;
@@ -90,14 +54,19 @@ interface AppNavigatorProps {
 export function AppNavigator({ isAuthenticated, isAdmin = false }: AppNavigatorProps) {
   const { handleUrl, handleDeepLink, resumePendingDeepLink } = useDeepLink();
   const navRef = useRef<NavigationContainerRef<RootStackParamList> | null>(null);
-  const linking = useMemo(() => makeLinking(isAuthenticated), [isAuthenticated]);
 
   // Cold start: route (or park) the URL the app was opened with.
   useEffect(() => {
-    Linking.getInitialURL().then((url) => handleUrl(url, navRef.current));
+    let active = true;
+    void Linking.getInitialURL().then((url) => {
+      if (active) handleUrl(url, navRef.current);
+    }).catch(() => undefined);
     // Warm start: route links received while the app is running.
     const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url, navRef.current));
-    return () => sub.remove();
+    return () => {
+      active = false;
+      sub.remove();
+    };
   }, [handleUrl]);
 
   // Push notification taps (issue #259): open the trade the push is about,
@@ -127,12 +96,9 @@ export function AppNavigator({ isAuthenticated, isAdmin = false }: AppNavigatorP
   return (
     <NavigationContainer
       ref={navRef}
-      linking={linking}
       fallback={null}
       onReady={() => {
-        if (isAuthenticated) {
-          resumePendingDeepLink(navRef.current);
-        }
+        resumePendingDeepLink(navRef.current);
       }}
     >
       <Stack.Navigator

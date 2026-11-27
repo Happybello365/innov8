@@ -513,6 +513,144 @@ components:
       required: [amount]
       example:
         amount: "3000"
+    BatchStatusUpdateRequest:
+      type: object
+      properties:
+        updates:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            properties:
+              tradeId:
+                type: string
+                minLength: 1
+                description: Trade ID or integer trade record ID.
+              status:
+                type: string
+                description: Target trade status.
+            required: [tradeId, status]
+      required: [updates]
+      example:
+        updates:
+          - tradeId: "trade-abc-123"
+            status: "CANCELLED"
+          - tradeId: "trade-def-456"
+            status: "CANCELLED"
+    BatchStatusUpdatePreviewResponse:
+      type: object
+      properties:
+        wouldSucceed:
+          type: array
+          description: Trades whose status transition would succeed.
+          items:
+            type: object
+            properties:
+              tradeId:
+                type: string
+              currentStatus:
+                type: string
+              targetStatus:
+                type: string
+            required: [tradeId, currentStatus, targetStatus]
+        wouldFail:
+          type: array
+          description: Trades that would be rejected and why.
+          items:
+            type: object
+            properties:
+              tradeId:
+                type: string
+              reason:
+                type: string
+            required: [tradeId, reason]
+        preview:
+          type: boolean
+          enum: [true]
+      required: [wouldSucceed, wouldFail, preview]
+      example:
+        wouldSucceed:
+          - tradeId: "trade-abc-123"
+            currentStatus: "FUNDED"
+            targetStatus: "CANCELLED"
+        wouldFail:
+          - tradeId: "trade-def-456"
+            reason: "Invalid transition from COMPLETED to CANCELLED"
+        preview: true
+    ExpirySweepRequest:
+      type: object
+      properties:
+        batchSize:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+          description: Maximum number of expired trades to process in one sweep.
+      example:
+        batchSize: 100
+    ExpirySweepPreviewResponse:
+      type: object
+      properties:
+        batchSize:
+          type: integer
+          description: The batchSize used for the preview query.
+        wouldExpire:
+          type: integer
+          description: Number of trades that would be expired.
+        wouldRefund:
+          type: integer
+          description: >-
+            Number of FUNDED trades in the batch, each of which requires an
+            on-chain escrow refund after expiry.
+        trades:
+          type: array
+          description: >-
+            Exact set of trades that would be expired, ordered by expiresAt
+            ascending (the same order as the real sweep).
+          items:
+            type: object
+            properties:
+              tradeId:
+                type: string
+              currentStatus:
+                type: string
+                description: Trade status at preview time.
+              amountUsdc:
+                type: string
+                description: Escrow amount in USDC.
+              expiresAt:
+                type: string
+                format: date-time
+              requiresRefund:
+                type: boolean
+                description: True when the trade is FUNDED and an on-chain refund is owed.
+            required: [tradeId, currentStatus, amountUsdc, expiresAt, requiresRefund]
+        preview:
+          type: boolean
+          enum: [true]
+        asOf:
+          type: string
+          format: date-time
+          description: Timestamp at which the preview query was evaluated.
+      required: [batchSize, wouldExpire, wouldRefund, trades, preview, asOf]
+      example:
+        batchSize: 100
+        wouldExpire: 2
+        wouldRefund: 1
+        trades:
+          - tradeId: "trade-abc-123"
+            currentStatus: "FUNDED"
+            amountUsdc: "50.00"
+            expiresAt: "2026-07-01T00:00:00.000Z"
+            requiresRefund: true
+          - tradeId: "trade-def-456"
+            currentStatus: "CREATED"
+            amountUsdc: "30.00"
+            expiresAt: "2026-07-02T00:00:00.000Z"
+            requiresRefund: false
+        preview: true
+        asOf: "2026-07-30T12:00:00.000Z"
     StreamClawbackPreviewResponse:
       type: object
       properties:
@@ -1393,6 +1531,87 @@ components:
               - $ref: "#/components/schemas/ErrorEnvelope"
               - $ref: "#/components/schemas/AppErrorResponse"
 paths:
+  /api/admin/trades/batch/status/preview:
+    post:
+      tags: [Admin]
+      summary: Preview a batch trade status update before execution
+      description: |-
+        Dry-run validation of a batch trade status update. Runs the same
+        checks as `POST /api/admin/trades/batch/status` — trade existence,
+        allowed status transition — but does not write any data to the
+        database and does not create an audit record.
+
+        Call this endpoint first and show the operator the `wouldSucceed`
+        and `wouldFail` lists in a confirmation modal before proceeding with
+        the real execution. The response shape mirrors the execution response
+        so the confirmation modal can be populated directly from this result.
+
+        `preview: true` is always present in the response so callers can
+        distinguish preview results from live execution results.
+      security:
+        - bearerAuth: []
+        - adminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchStatusUpdateRequest"
+      responses:
+        "200":
+          description: Preview computed — no data has been written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchStatusUpdatePreviewResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/admin/trades/sweep-expired/preview:
+    post:
+      tags: [Admin]
+      summary: Preview the expiry sweep before execution
+      description: |-
+        Dry-run of `POST /api/admin/trades/sweep-expired`. Returns the exact
+        set of trades that the sweep would expire, ordered by `expiresAt`
+        ascending (the same order the real sweep processes them), without
+        writing any data to the database.
+
+        Call this endpoint first so the operator can review affected trade
+        IDs, amounts, and which trades are FUNDED (and therefore require an
+        on-chain escrow refund) before confirming the sweep.
+
+        `preview: true` is always present in the response so callers can
+        distinguish preview results from live execution results.
+      security:
+        - bearerAuth: []
+        - adminAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpirySweepRequest"
+      responses:
+        "200":
+          description: Preview computed — no data has been written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpirySweepPreviewResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/admin/audit:
     get:
       tags: [Admin]

@@ -1,4 +1,5 @@
-import { formatAmount } from './formatAmount';
+/* eslint-disable no-undef */
+import { formatAmount, formatDate, formatQuantity } from './formatAmount';
 
 describe('formatAmount', () => {
   // USDC — 2 dp, thousands-separated
@@ -56,5 +57,26 @@ describe('formatAmount', () => {
 
   it('returns raw value for non-numeric input', () => {
     expect(formatAmount('abc', 'USDC')).toBe('abc');
+  });
+});
+
+describe('Nigerian locale display', () => {
+  it('uses the naira symbol and rounds to two places', () => {
+    expect(formatAmount(1234.567, 'NGN')).toBe('₦1,234.57');
+    expect(formatAmount(NaN, 'NGN')).toBe('—');
+  });
+
+  it('does not partially parse malformed amounts', () => {
+    expect(formatAmount('123USD', 'cNGN')).toBe('123USD');
+  });
+
+  it('groups quantities without translating backend units', () => {
+    expect(formatQuantity('1234.500', 'kg')).toBe('1,234.5 kg');
+    expect(formatQuantity('invalid', 'kg')).toBe('—');
+  });
+
+  it('uses day-month-year ordering and handles invalid dates', () => {
+    expect(formatDate('2026-08-29T12:00:00')).toBe('29 Aug 2026');
+    expect(formatDate('invalid')).toBe('—');
   });
 });

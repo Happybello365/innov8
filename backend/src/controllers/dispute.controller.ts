@@ -6,6 +6,7 @@ import { validateRequest } from "../middleware/validateRequest";
 import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../errors/errorCodes";
+import { computeETag, checkConditionalRequest } from "../lib/etag";
 
 const listDisputesQuerySchema = z.object({
   status: z.enum(["OPEN", "UNDER_REVIEW", "RESOLVED", "CLOSED"]).optional(),
@@ -102,6 +103,15 @@ export class DisputeEvidenceRequestController {
 
     try {
       const result = await this.disputeService.getDisputeDetail(req.params.id as string, callerAddress);
+      const etag = computeETag(
+        (result as any).id ?? req.params.id,
+        (result as any).version,
+        (result as any).updatedAt ?? new Date(),
+      );
+      res.set("ETag", etag);
+      if (checkConditionalRequest(req, etag)) {
+        return res.status(304).end();
+      }
       res.status(200).json(result);
     } catch (error) {
       return next(error);

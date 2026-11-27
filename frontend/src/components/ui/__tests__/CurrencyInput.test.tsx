@@ -192,6 +192,51 @@ describe("CurrencyInput", () => {
       expect(screen.getByText("Enter the clawback amount")).toBeInTheDocument();
     });
 
+    it("does not reference the unrendered helper text when an error is shown", () => {
+      render(
+        <CurrencyInput
+          value="-1"
+          onChange={mockOnChange}
+          asset={STELLAR_ASSETS.XLM}
+          label="Amount"
+          error="Amount must be positive"
+          helperText="Enter the amount to send"
+        />
+      );
+
+      const input = screen.getByLabelText("Amount");
+      const describedBy = (input.getAttribute("aria-describedby") ?? "").split(" ");
+      const errorEl = screen.getByText("Amount must be positive");
+
+      expect(describedBy).toContain(errorEl.id);
+      expect(screen.queryByText("Enter the amount to send")).not.toBeInTheDocument();
+      // Every id referenced by aria-describedby must exist in the DOM.
+      for (const refId of describedBy) {
+        expect(document.getElementById(refId)).not.toBeNull();
+      }
+    });
+
+    it("references helper text and precision when there is no error", () => {
+      render(
+        <CurrencyInput
+          value="1"
+          onChange={mockOnChange}
+          asset={STELLAR_ASSETS.XLM}
+          label="Amount"
+          helperText="Enter the amount to send"
+        />
+      );
+
+      const input = screen.getByLabelText("Amount");
+      const describedBy = (input.getAttribute("aria-describedby") ?? "").split(" ");
+
+      expect(describedBy).toContain(screen.getByText("Enter the amount to send").id);
+      expect(describedBy).toContain(screen.getByText(/7 decimal places/i).id);
+      for (const refId of describedBy) {
+        expect(document.getElementById(refId)).not.toBeNull();
+      }
+    });
+
     it("prioritizes error over helper text", () => {
       render(
         <CurrencyInput

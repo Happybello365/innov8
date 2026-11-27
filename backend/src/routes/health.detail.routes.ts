@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { HealthService } from "../services/health.service";
 import { appLogger } from "../middleware/logger";
+import { getDbPoolSnapshot } from "../lib/dbPoolMetrics";
 
 /**
  * Ledger lag above this many ledgers (approximately 5 seconds each) is
@@ -24,6 +25,9 @@ const LAG_THRESHOLD_LEDGERS = Number(
  *   - lastProcessedLedger  — sequence number of the last persisted event
  *   - lagSeconds           — wall-clock seconds since that event was processed
  *   - status               — "up" | "degraded" | "down"
+ *
+ * and a `dbPool` block with connection-pool usage (open/busy/idle), waiting
+ * queries, saturation (busy / connection_limit) and mean checkout wait (ms).
  */
 export function createHealthDetailRouter(): Router {
     const router = Router();
@@ -31,7 +35,10 @@ export function createHealthDetailRouter(): Router {
 
     router.get("/detail", async (req: Request, res: Response, _next: NextFunction) => {
         try {
-            const result = await healthService.performHealthCheck();
+            const [result, dbPool] = await Promise.all([
+                healthService.performHealthCheck(),
+                getDbPoolSnapshot(),
+            ]);
 
             appLogger.info(
                 { status: result.status, checks: result.checks },
@@ -87,6 +94,7 @@ export function createHealthDetailRouter(): Router {
                     lagSeconds: lagSeconds >= 0 ? lagSeconds : null,
                     lagThresholdSeconds,
                 },
+                dbPool,
             });
         } catch (error) {
             appLogger.error({ error }, "Health detail check failed");

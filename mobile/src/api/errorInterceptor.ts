@@ -16,6 +16,18 @@ export const NETWORK_ERROR_CODE = 'NETWORK_ERROR';
 export const TIMEOUT_ERROR_CODE = 'TIMEOUT_ERROR';
 export const UNKNOWN_ERROR_CODE = 'UNKNOWN';
 
+/** Backend code returned when the server has revoked the caller's session (#515). */
+export const SESSION_REVOKED_CODE = 'SESSION_REVOKED';
+
+/**
+ * True for a 401 whose body reports a revoked session. Such a session cannot
+ * be recovered by refreshing, so the client must drop local access at once.
+ */
+export function isSessionRevokedError(error: AxiosError<unknown>): boolean {
+  const body = error.response?.data as RawBackendErrorBody | undefined;
+  return error.response?.status === 401 && body?.code === SESSION_REVOKED_CODE;
+}
+
 /**
  * Axios response error interceptor that converts an `AxiosError` into a
  * typed `AdminApiError`. Exported so it can be unit-tested directly

@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   ScrollView,
   StyleSheet,
@@ -23,6 +24,22 @@ import {
   SigningError,
   submitAndConfirm,
 } from '../services/adminSigning';
+import {
+  buildSigningPreview,
+  formatSigningPreviewMessage,
+  SigningPreviewError,
+  type SigningPreview,
+} from '../services/signingPreview';
+import {
+  clearPendingWalletAction,
+  loadPendingWalletAction,
+  matchesPendingWalletAction,
+  savePendingWalletAction,
+  transactionHashHex,
+} from '../services/walletReturnState';
+
+/** Name of this signing step in the wallet return-state store (#514). */
+const SIGN_STEP_ACTION = 'sign-contract-tx';
 
 type Props = StackScreenProps<RootStackParamList, 'AdminContract'>;
 
@@ -42,8 +59,64 @@ function SignPanel({ unsignedXdr, testID }: { unsignedXdr: string; testID: strin
   const [signedXdr, setSignedXdr] = useState('');
   const [state, setState] = useState<SignState>('idle');
   const busy = state === 'submitting';
+  // True when the user left for the wallet and came back to this same transaction (#514).
+  const [returnedFromWallet, setReturnedFromWallet] = useState(false);
 
-  const openWallet = () => void Linking.openURL(buildSep7Uri(unsignedXdr));
+  // Restore the signing step after an app switch. Best-effort: a failure here
+  // only means the panel starts fresh, as it did before.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const txHash = transactionHashHex(unsignedXdr);
+        const pending = await loadPendingWalletAction();
+        if (!cancelled && matchesPendingWalletAction(pending, SIGN_STEP_ACTION, txHash)) {
+          setReturnedFromWallet(true);
+        }
+      } catch {
+        // Ignore: restoration is optional.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [unsignedXdr]);
+
+  // Show what the wallet will sign before handing the XDR over (#513).
+  // Fails closed: if the transaction cannot be decoded, the wallet is never opened.
+  const openWallet = () => {
+    let preview: SigningPreview;
+    try {
+      preview = buildSigningPreview(unsignedXdr);
+    } catch (error: unknown) {
+      Alert.alert(
+        'Cannot sign',
+        error instanceof SigningPreviewError
+          ? `${error.message}. The transaction was not sent to your wallet.`
+          : 'The transaction could not be previewed, so it was not sent to your wallet.',
+      );
+      return;
+    }
+    Alert.alert('Review before signing', formatSigningPreviewMessage(preview), [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Open wallet',
+        onPress: () => {
+          void (async () => {
+            try {
+              await savePendingWalletAction({
+                action: SIGN_STEP_ACTION,
+                txHash: transactionHashHex(unsignedXdr),
+              });
+            } catch {
+              // Saving is best-effort; the wallet should still open.
+            }
+            await Linking.openURL(buildSep7Uri(unsignedXdr));
+          })();
+        },
+      },
+    ]);
+  };
 
   const submit = async () => {
     if (busy || state === 'confirmed' || !signedXdr.trim()) return;
@@ -51,6 +124,8 @@ function SignPanel({ unsignedXdr, testID }: { unsignedXdr: string; testID: strin
     try {
       await submitAndConfirm(signedXdr.trim());
       setState('confirmed');
+      setReturnedFromWallet(false);
+      void clearPendingWalletAction().catch(() => undefined);
     } catch (error: unknown) {
       setState(error instanceof SigningError ? error.reason : 'failed');
     }
@@ -85,11 +160,18 @@ function SignPanel({ unsignedXdr, testID }: { unsignedXdr: string; testID: strin
         onPress={() => {
           setSignedXdr('');
           setState('rejected');
+          setReturnedFromWallet(false);
+          void clearPendingWalletAction().catch(() => undefined);
         }}
         disabled={busy || state === 'confirmed'}
       >
         <Text style={styles.txLabel}>Wallet rejected / cancel</Text>
       </TouchableOpacity>
+      {returnedFromWallet && state === 'idle' ? (
+        <Text testID={`${testID}-restored`} style={styles.txValue}>
+          Returned from your wallet. Paste the signed XDR to finish.
+        </Text>
+      ) : null}
       {state !== 'idle' ? (
         <Text testID={`${testID}-status`} style={styles.txValue}>
           {SIGN_MESSAGES[state]}

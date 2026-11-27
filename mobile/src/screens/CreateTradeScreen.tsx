@@ -1,3 +1,4 @@
+import { formatAmount, formatQuantity } from '../utils/formatAmount';
 import { useState, useCallback } from 'react';
 import {
   View,
@@ -119,7 +120,7 @@ function Step1Details({
   const [touched, setTouched] = useState(false);
   const qty = parseFloat(data.quantity);
   const price = parseFloat(data.pricePerUnit);
-  const totalValue = !isNaN(qty) && !isNaN(price) ? `NGN ${(qty * price).toLocaleString()}` : '—';
+  const totalValue = formatAmount(qty * price, 'NGN');
   const errors = touched ? validateStep1Fields(data) : {};
   const valid = Object.keys(validateStep1Fields(data)).length === 0;
 
@@ -309,7 +310,7 @@ function Step3Review({
 }) {
   const qty = parseFloat(data.quantity);
   const price = parseFloat(data.pricePerUnit);
-  const total = !isNaN(qty) && !isNaN(price) ? (qty * price).toLocaleString() : '—';
+  const total = formatAmount(qty * price, 'NGN');
 
   return (
     <View style={stepStyles.container}>
@@ -317,8 +318,8 @@ function Step3Review({
 
       <View style={stepStyles.reviewCard}>
         <ReviewRow label="Commodity" value={data.commodity} />
-        <ReviewRow label="Quantity" value={`${data.quantity} ${data.unit}`} />
-        <ReviewRow label="Total Value" value={`NGN ${total}`} />
+        <ReviewRow label="Quantity" value={formatQuantity(data.quantity, data.unit)} />
+        <ReviewRow label="Total Value" value={total} />
         <ReviewRow label="Seller" value={data.sellerAddress} mono />
         <ReviewRow label="Loss Ratio" value={`Buyer ${data.buyerRatio}% / Seller ${data.sellerRatio}%`} />
         <ReviewRow label="Delivery" value={`${data.deliveryDays} days`} />

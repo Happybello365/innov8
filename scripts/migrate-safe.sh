@@ -3,7 +3,10 @@
 #
 # Checks performed before applying any migration:
 #   1. Pending migrations list (dry-run)
-#   2. Backward-compatibility scan (destructive DDL detection)
+#   2. Preflight validation (scripts/migration-preflight.mjs): ordering,
+#      drift, table dependencies, destructive DDL, and — in production — a
+#      required rollback manifest (rollback.sql or ROLLBACK.md) per migration
+#   3. Backward-compatibility scan (destructive DDL detection)
 #   3. Database backup prompt (skippable with --no-backup in non-prod)
 #   4. Migration application with status verification
 #
@@ -66,6 +69,19 @@ if echo "$PENDING" | grep -q "Database schema is up to date"; then
   echo ""
   echo "  ✓ No pending migrations. Nothing to do."
   exit 0
+fi
+
+# ── Step 2b: Preflight validation ────────────────────────────────────────────
+echo ""
+echo "[2b] Preflight validation (dependencies, destructive DDL, rollback manifests)"
+APPLIED_MIGRATIONS=$(psql "$DB_URL" -At -c "
+  SELECT migration_name FROM _prisma_migrations
+  WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+" 2>/dev/null | paste -sd, - || true)
+if ! node "$SCRIPT_DIR/migration-preflight.mjs" --env="$ENV" --applied="$APPLIED_MIGRATIONS"; then
+  echo "  ✗ Preflight failed. Fix the errors above before migrating."
+  echo "    See docs/migration-rollback-playbook.md (Preflight & rollback manifests)."
+  exit 1
 fi
 
 # ── Step 3: Backward-compatibility scan ──────────────────────────────────────

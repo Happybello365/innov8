@@ -12,6 +12,7 @@ import { appLogger } from "./middleware/logger";
 import { initializeTracing } from "./config/tracing";
 import { HealthService } from "./services/health.service";
 import { QueueMetricsService } from "./services/queueMetrics.service";
+import { startDbPoolMetrics } from "./lib/dbPoolMetrics";
 import { createReconciliationWorker } from "./jobs/workers/reconciliation.worker";
 import { createTreasuryReconciliationWorker } from "./jobs/workers/treasuryReconciliation.worker";
 import { createWebhookSecretPurgeWorker } from "./jobs/workers/webhookSecretPurge.worker";
@@ -237,6 +238,9 @@ async function bootstrap() {
 
     queueMetricsService.start();
     appLogger.info("QueueMetricsService started successfully");
+
+    startDbPoolMetrics();
+    appLogger.info("DB pool metrics collection started");
 
     await startReconciliationCron();
     await startTreasuryReconciliationCron();
