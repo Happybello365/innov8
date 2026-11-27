@@ -114,6 +114,7 @@ export class ShutdownOrchestrator {
         { elapsedMs: elapsed },
         "Shutdown complete — exiting",
       );
+      this.clearForceExitTimer();
       process.exit(0);
     } catch (err) {
       const elapsed = Date.now() - startMs;
@@ -121,7 +122,15 @@ export class ShutdownOrchestrator {
         { err, elapsedMs: elapsed },
         "Error during shutdown — forcing exit",
       );
+      this.clearForceExitTimer();
       process.exit(1);
+    }
+  }
+
+  private clearForceExitTimer(): void {
+    if (this.forceExitTimer) {
+      clearTimeout(this.forceExitTimer);
+      this.forceExitTimer = null;
     }
   }
 
