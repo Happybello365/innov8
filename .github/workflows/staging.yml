@@ -2,6 +2,31 @@ name: Staging Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      canary_percent:
+        description: 'Initial canary traffic percentage (1-100)'
+        required: false
+        default: '10'
+      canary_step_percent:
+        description: 'Traffic increment per stage (1-100)'
+        required: false
+        default: '25'
+      canary_interval_seconds:
+        description: 'Seconds to observe each stage before promoting'
+        required: false
+        default: '30'
+      canary_max_error_rate:
+        description: 'Rollback if error rate (0-1) exceeds this threshold'
+        required: false
+        default: '0.05'
+      canary_max_latency_ms:
+        description: 'Rollback if p95 latency (ms) exceeds this threshold'
+        required: false
+        default: '1500'
+      image_digest:
+        description: 'Immutable image digest to promote (e.g. sha256:...). When set, this digest is promoted instead of a mutable tag.'
+        required: false
+        default: ''
   push:
     branches:
       - develop
@@ -10,6 +35,7 @@ on:
       - 'scripts/staging-up.sh'
       - 'scripts/staging-validate.sh'
       - 'scripts/staging-admin-smoke-test.sh'
+      - 'scripts/staging-canary.sh'
       - 'scripts/grafana-deploy-annotation.sh'
       - 'scripts/migrate-*.sh'
       - 'backend/**'
@@ -23,6 +49,7 @@ on:
       - 'scripts/staging-up.sh'
       - 'scripts/staging-validate.sh'
       - 'scripts/staging-admin-smoke-test.sh'
+      - 'scripts/staging-canary.sh'
       - 'scripts/grafana-deploy-annotation.sh'
       - 'scripts/migrate-*.sh'
       - 'backend/**'
@@ -37,9 +64,25 @@ jobs:
   staging-deploy:
     name: Deploy & Validate Staging
     runs-on: ubuntu-latest
+    env:
+      CANARY_PERCENT: ${{ github.event.inputs.canary_percent || '10' }}
+      CANARY_STEP_PERCENT: ${{ github.event.inputs.canary_step_percent || '25' }}
+      CANARY_INTERVAL_SECONDS: ${{ github.event.inputs.canary_interval_seconds || '30' }}
+      CANARY_MAX_ERROR_RATE: ${{ github.event.inputs.canary_max_error_rate || '0.05' }}
+      CANARY_MAX_LATENCY_MS: ${{ github.event.inputs.canary_max_latency_ms || '1500' }}
+      IMAGE_DIGEST: ${{ github.event.inputs.image_digest || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Validate image digest input
+        if: ${{ env.IMAGE_DIGEST != '' }}
+        run: |
+          if ! printf '%s' "$IMAGE_DIGEST" | grep -Eq '^sha256:[a-f0-9]{64}$'; then
+            echo "::error title=Invalid image digest::IMAGE_DIGEST must match sha256:<64 hex chars>. Refusing to promote a mutable tag."
+            exit 1
+          fi
+          echo "Promoting immutable image digest: $IMAGE_DIGEST"
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
@@ -60,6 +103,9 @@ jobs:
           STAGING_DATABASE_URL=${{ secrets.STAGING_DATABASE_URL || 'postgresql://postgres:staging-password@localhost:5434/amana_staging' }}
           JWT_SECRET=${{ secrets.STAGING_JWT_SECRET || 'ci-staging-jwt-secret-placeholder-minimum-32' }}
           EOF
+          if [ -n "$IMAGE_DIGEST" ]; then
+            echo "STAGING_IMAGE_DIGEST=$IMAGE_DIGEST" >> .env.staging
+          fi
 
       - name: Install backend dependencies
         run: npm ci
@@ -67,7 +113,7 @@ jobs:
 
       - name: Start staging stack
         run: |
-          chmod +x ./scripts/staging-up.sh ./scripts/staging-validate.sh ./scripts/staging-admin-smoke-test.sh
+          chmod +x ./scripts/staging-up.sh ./scripts/staging-validate.sh ./scripts/staging-admin-smoke-test.sh ./scripts/staging-canary.sh
           ./scripts/staging-up.sh
         timeout-minutes: 10
 
@@ -79,6 +125,56 @@ jobs:
         run: ./scripts/staging-admin-smoke-test.sh
         timeout-minutes: 5
 
+      - name: Canary traffic shift (backend + frontend)
+        id: canary
+        run: |
+          ./scripts/staging-canary.sh \
+            --start "$CANARY_PERCENT" \
+            --step "$CANARY_STEP_PERCENT" \
+            --interval "$CANARY_INTERVAL_SECONDS" \
+            --max-error-rate "$CANARY_MAX_ERROR_RATE" \
+            --max-latency-ms "$CANARY_MAX_LATENCY_MS"
+        timeout-minutes: 15
+
+      - name: Record deployment provenance
+        if: success()
+        env:
+          PROVENANCE_COMMIT: ${{ github.sha }}
+          PROVENANCE_REF: ${{ github.ref_name }}
+          PROVENANCE_WORKFLOW: ${{ github.workflow }}
+          PROVENANCE_RUN_ID: ${{ github.run_id }}
+          PROVENANCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          PROVENANCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PROVENANCE_OPERATOR: ${{ github.actor }}
+          PROVENANCE_TRIGGER: ${{ github.event_name }}
+          PROVENANCE_IMAGE_DIGEST: ${{ env.IMAGE_DIGEST }}
+        run: |
+          # Resolve the artifact digest: prefer the explicitly promoted digest,
+          # otherwise fall back to the digest of the running backend image.
+          digest="$PROVENANCE_IMAGE_DIGEST"
+          if [ -z "$digest" ]; then
+            digest=$(docker compose --profile staging images --format '{{.Digest}}' backend 2>/dev/null | head -n1 || true)
+          fi
+          if [ -z "$digest" ]; then
+            digest="unknown"
+          fi
+
+          # Emit a structured, secret-free provenance record for audit logs.
+          provenance=$(jq -cn \
+            --arg commit "$PROVENANCE_COMMIT" \
+            --arg ref "$PROVENANCE_REF" \
+            --arg workflow "$PROVENANCE_WORKFLOW" \
+            --arg run_id "$PROVENANCE_RUN_ID" \
+            --arg run_attempt "$PROVENANCE_RUN_ATTEMPT" \
+            --arg run_url "$PROVENANCE_RUN_URL" \
+            --arg operator "$PROVENANCE_OPERATOR" \
+            --arg trigger "$PROVENANCE_TRIGGER" \
+            --arg digest "$digest" \
+            '{event:"deployment.provenance",environment:"staging",commit:$commit,ref:$ref,workflow:$workflow,run_id:$run_id,run_attempt:$run_attempt,run_url:$run_url,operator:$operator,trigger:$trigger,artifact_digest:$digest}')
+
+          echo "$provenance"
+          echo "$provenance" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Annotate Grafana golden-signals dashboard with this deploy
         if: success()
         continue-on-error: true
@@ -87,6 +183,7 @@ jobs:
           GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
           DEPLOY_ENV: staging
           DEPLOY_REF: ${{ github.sha }}
+          DEPLOY_IMAGE_DIGEST: ${{ env.IMAGE_DIGEST }}
         run: |
           chmod +x ./scripts/grafana-deploy-annotation.sh
           ./scripts/grafana-deploy-annotation.sh
@@ -94,10 +191,11 @@ jobs:
       - name: Notify on Staging Validation or Smoke Test Failure
         if: failure()
         run: |
-          echo "::error title=Staging Deployment Failure::Staging validation or admin route smoke test failed."
+          echo "::error title=Staging Deployment Failure::Staging validation, admin route smoke test, or canary promotion failed."
           {
             echo "### 🚨 Staging Deployment Failure Notification"
-            echo "The staging deployment or admin route smoke test failed during automated validation."
+            echo "The staging deployment, admin route smoke test, or canary traffic shift failed during automated validation."
+            echo "If the canary stage failed, traffic was automatically rolled back to the previous stable release."
             echo "Please review workflow logs and ensure admin endpoints and staging services are functioning correctly."
           } >> "$GITHUB_STEP_SUMMARY"
 
