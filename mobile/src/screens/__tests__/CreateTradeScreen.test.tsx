@@ -53,7 +53,7 @@ describe('CreateTradeScreen', () => {
     const screen = renderScreen();
     expect(screen.getByText('Step 1: Details')).toBeTruthy();
     fillStep1(screen);
-    expect(screen.getByText(`NGN ${(2000).toLocaleString()}`)).toBeTruthy();
+    expect(screen.getByText('₦2,000.00')).toBeTruthy();
     fireEvent.press(screen.getByText('Continue'));
     expect(screen.getByText('Step 2: Negotiation')).toBeTruthy();
     fireEvent.press(screen.getByText('+10%'));

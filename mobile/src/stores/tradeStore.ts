@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { tradeApi } from '../api/trade';
+import { recordNegativeReviewEvent, recordPositiveMilestoneAndMaybePrompt } from '../services/reviewPrompt.service';
 import { viewForError } from '../api/errorInterceptor';
 import { AdminErrorView } from '../api/errors';
 import type { Trade, TradeListResult, TradeStatus } from '../types/trade';
@@ -76,6 +77,28 @@ interface TradeState {
   clearErrorView: () => void;
 }
 
+const recentCompletedTrades = new Set<string>();
+
+function recordCompletedTrade(previous: Trade | null | undefined, current: Trade): void {
+  if (previous?.tradeId === current.tradeId &&
+    (previous.status === 'FUNDED' || previous.status === 'IN_TRANSIT' || previous.status === 'DELIVERED') &&
+    current.status === 'COMPLETED' && !recentCompletedTrades.has(current.tradeId)) {
+    if (recentCompletedTrades.size >= 100) {
+      const [oldest] = recentCompletedTrades;
+      recentCompletedTrades.delete(oldest);
+    }
+    recentCompletedTrades.add(current.tradeId);
+    void recordPositiveMilestoneAndMaybePrompt();
+  }
+}
+
+function recordCompletedTrades(previous: Trade[], current: Trade[]): void {
+  const previousById = new Map(previous.map((trade) => [trade.tradeId, trade]));
+  for (const trade of current) {
+    recordCompletedTrade(previousById.get(trade.tradeId), trade);
+  }
+}
+
 export const useTradeStore = create<TradeState>((set, get) => ({
   trades: [],
   total: 0,
@@ -89,6 +112,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     set({ isLoading: true, errorView: null });
     try {
       const result: TradeListResult = await tradeApi.listTrades(params);
+      recordCompletedTrades(get().trades, result.trades);
       set({ trades: result.trades, total: result.total, isLoading: false });
     } catch (error: unknown) {
       set({ errorView: viewForError(error), isLoading: false });
@@ -99,6 +123,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     set({ isRefreshing: true, errorView: null });
     try {
       const result: TradeListResult = await tradeApi.listTrades(params);
+      recordCompletedTrades(get().trades, result.trades);
       set({ trades: result.trades, total: result.total, isRefreshing: false });
     } catch (error: unknown) {
       set({ errorView: viewForError(error), isRefreshing: false });
@@ -119,6 +144,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     set({ isLoading: true, ...(silent ? {} : { errorView: null }) });
     try {
       const trade = await tradeApi.getTrade(tradeId);
+      if (!silent && trade.tradeId === tradeId) recordCompletedTrade(get().currentTrade, trade);
       set({ currentTrade: trade, isLoading: false });
     } catch (error: unknown) {
       if (silent) {
@@ -151,6 +177,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       const trade = await tradeApi.confirmDelivery(tradeId);
       set({ currentTrade: trade, isLoading: false });
     } catch (error: unknown) {
+      void recordNegativeReviewEvent();
       set({ lastActionErrorView: viewForError(error), isLoading: false });
     }
   },
@@ -170,6 +197,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       }
       set({ isLoading: false });
     } catch (error: unknown) {
+      void recordNegativeReviewEvent();
       set({ lastActionErrorView: viewForError(error), isLoading: false });
     }
   },
@@ -183,12 +211,14 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       }
       set({ isLoading: false });
     } catch (error: unknown) {
+      void recordNegativeReviewEvent();
       set({ lastActionErrorView: viewForError(error), isLoading: false });
     }
   },
 
   initiateDispute: async (tradeId, reason) => {
     set({ isLoading: true, lastActionErrorView: null });
+    void recordNegativeReviewEvent();
     try {
       const trade = await tradeApi.initiateDispute(tradeId, reason);
       set({ currentTrade: trade, isLoading: false });

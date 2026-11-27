@@ -8,6 +8,10 @@
  * displays amount + counterparty so the user knows exactly what they are
  * approving. (#71)
  *
+ * #483 — adds an "Operation details" toggle so the user can inspect the
+ * approved operations list (XDR-derived fields) before signing.  The toggle is
+ * collapsed by default to keep the common path clean.
+ *
  * Keyboard flow:
  *  - Focus moves to the Cancel button (safe default) on open.
  *  - Escape closes without signing.
@@ -32,6 +36,14 @@ export interface TxSummaryItem {
   value: string;
 }
 
+/** A single decoded operation from the unsigned XDR. */
+export interface TxOperationDetail {
+  /** e.g. "invokeHostFunction", "payment", "changeTrust" */
+  type: string;
+  /** Human-readable fields for this operation (amount, asset, function name, …). */
+  fields: TxSummaryItem[];
+}
+
 export interface TxSummaryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -45,6 +57,13 @@ export interface TxSummaryModalProps {
    * what this transaction will do.  Rendered as a definition list.
    */
   items: TxSummaryItem[];
+  /**
+   * Optional decoded operation details from the unsigned XDR. (#483)
+   * When provided a collapsible "Operation details" section is shown below
+   * the summary so the user can inspect the low-level approved operations
+   * before signing.
+   */
+  operationDetails?: TxOperationDetail[];
   /** Called when the user confirms and wants Freighter to sign. */
   onConfirm: () => void;
   /** Whether the signing request is in-flight. */
@@ -72,6 +91,70 @@ function ShieldIcon() {
   );
 }
 
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={`w-4 h-4 text-text-muted transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+// ─── Operation details toggle (#483) ─────────────────────────────────────────
+
+function OperationDetailsToggle({ details }: { details: TxOperationDetail[] }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const panelId = React.useId();
+
+  return (
+    <div className="mt-3 rounded-lg border border-border-default overflow-hidden">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        data-testid="tx-operation-details-toggle"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+      >
+        <span className="font-medium">
+          Operation details ({details.length} operation{details.length !== 1 ? "s" : ""})
+        </span>
+        <ChevronIcon expanded={expanded} />
+      </button>
+
+      {expanded && (
+        <div
+          id={panelId}
+          role="region"
+          aria-label="Approved operation details"
+          className="border-t border-border-default divide-y divide-border-default"
+          data-testid="tx-operation-details-panel"
+        >
+          {details.map((op, i) => (
+            <div key={i} className="px-4 py-3 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                Operation {i + 1}: <span className="text-gold font-mono">{op.type}</span>
+              </p>
+              {op.fields.map(({ label, value }) => (
+                <div key={label} className="flex items-start justify-between gap-4">
+                  <span className="text-xs text-text-muted whitespace-nowrap shrink-0">{label}</span>
+                  <span className="text-xs font-mono text-text-primary text-right break-all">{value}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function TxSummaryModal({
@@ -79,19 +162,20 @@ export function TxSummaryModal({
   onOpenChange,
   actionLabel,
   items,
+  operationDetails,
   onConfirm,
   loading = false,
 }: TxSummaryModalProps) {
   const cancelRef = React.useRef<HTMLButtonElement>(null);
 
-  // Move focus to Cancel (safe default) once the dialog mounts.
+  // Reset the operation details panel whenever the modal reopens so each new
+  // transaction starts collapsed.
   React.useEffect(() => {
-    if (open) {
-      const raf = requestAnimationFrame(() => {
-        cancelRef.current?.focus();
-      });
-      return () => cancelAnimationFrame(raf);
-    }
+    if (!open) return;
+    const raf = requestAnimationFrame(() => {
+      cancelRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [open]);
 
   return (
@@ -126,6 +210,11 @@ export function TxSummaryModal({
             </div>
           ))}
         </div>
+
+        {/* Operation details toggle (#483) */}
+        {operationDetails && operationDetails.length > 0 && (
+          <OperationDetailsToggle details={operationDetails} />
+        )}
 
         <p className="mt-4 text-xs text-text-muted">
           Freighter will open and ask for your wallet password. The signed

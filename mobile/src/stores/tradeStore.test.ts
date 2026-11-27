@@ -5,6 +5,11 @@ import { tradeApi } from '../api/trade';
 import { AdminApiError } from '../api/errors';
 import { NETWORK_ERROR_CODE } from '../api/errorInterceptor';
 
+jest.mock('../services/reviewPrompt.service', () => ({
+  recordNegativeReviewEvent: jest.fn(),
+  recordPositiveMilestoneAndMaybePrompt: jest.fn(),
+}));
+
 jest.mock('../api/trade', () => ({
   tradeApi: {
     listTrades: jest.fn(),
@@ -270,4 +275,25 @@ describe('useTradeStore — error slot routing', () => {
     expect(state.lastActionErrorView).toBeNull();
     expect(state.isLoading).toBe(false);
   });
+});
+
+it('counts a server-confirmed trade completion once across repeated list refreshes', async () => {
+  const reviewPrompt = jest.requireMock('../services/reviewPrompt.service');
+  const trade = {
+    id: 88,
+    tradeId: 'review-completed-trade',
+    buyerAddress: 'buyer',
+    sellerAddress: 'seller',
+    amountUsdc: '20',
+    status: 'DELIVERED' as const,
+  };
+  mockList
+    .mockResolvedValueOnce({ trades: [trade], total: 1, page: 1, limit: 10 })
+    .mockResolvedValue({ trades: [{ ...trade, status: 'COMPLETED' }], total: 1, page: 1, limit: 10 });
+
+  await useTradeStore.getState().fetchTrades();
+  expect(reviewPrompt.recordPositiveMilestoneAndMaybePrompt).toHaveBeenCalledTimes(0);
+  await useTradeStore.getState().refreshTrades();
+  await useTradeStore.getState().refreshTrades();
+  expect(reviewPrompt.recordPositiveMilestoneAndMaybePrompt).toHaveBeenCalledTimes(1);
 });

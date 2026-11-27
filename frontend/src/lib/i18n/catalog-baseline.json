@@ -1,0 +1,22 @@
+{
+  "missingInPcm": [],
+  "unused": [
+    "common.back",
+    "common.cancel",
+    "common.close",
+    "common.confirm",
+    "common.continue",
+    "common.loading",
+    "common.save",
+    "trade.commodity",
+    "trade.continueToNegotiation",
+    "trade.createTitle",
+    "trade.currency",
+    "trade.estimatedTotal",
+    "trade.pricePerUnit",
+    "trade.quantity",
+    "trade.sellerAddress",
+    "trade.unit",
+    "wallet.disconnect"
+  ]
+}
