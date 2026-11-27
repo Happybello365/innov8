@@ -25,6 +25,7 @@ import { createAdminDlqRouter } from "./routes/admin.dlq.routes";
 import { createAdminJobsRouter } from "./routes/admin.jobs.routes";
 import { createAdminWalletChallengeRouter } from "./routes/admin.walletChallenge.routes";
 import { createAdminReportRouter } from "./routes/admin.report.routes";
+import { createAdminEvidenceRouter } from "./routes/admin.evidence.routes";
 import { createAdminApiKeyScopeRouter } from "./routes/admin.apiKeyScope.routes";
 import { createAdminNotificationTemplatesRouter } from "./routes/admin.notificationTemplates.routes";
 import { adminFeatureGate } from "./middleware/adminFeatureGate.middleware";
@@ -185,6 +186,8 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
   app.use(adminFeatureGate, csrfProtection, createAdminJobsRouter());
   // Admin cross-entity reporting: POST /api/admin/reports/query, /api/admin/reports/saved
   app.use(adminFeatureGate, csrfProtection, createAdminReportRouter());
+  // Admin evidence ops & XDR diagnostics: /api/admin/diagnostics/xdr, /api/admin/evidence/quarantine, /api/admin/evidence/reverify
+  app.use(adminFeatureGate, csrfProtection, createAdminEvidenceRouter());
 
   // Admin API key scope simulator (#476): POST /api/admin/api-keys/simulate, /simulate/batch, GET /actions
   app.use(adminFeatureGate, csrfProtection, createAdminApiKeyScopeRouter());
