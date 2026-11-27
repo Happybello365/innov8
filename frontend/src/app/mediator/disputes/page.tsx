@@ -65,6 +65,32 @@ export default function MediatorDisputesPage() {
   const mediatorAddresses = useMemo(() => getMediatorAddresses(), []);
   const isMediator = isMediatorAddress(address, mediatorAddresses);
 
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [newViewName, setNewViewName] = useState("");
+  const [showSaveInput, setShowSaveInput] = useState(false);
+
+  useEffect(() => {
+    if (address) {
+      setSavedViews(loadSavedViews(address));
+    }
+  }, [address]);
+
+  function handleSaveView() {
+    const name = newViewName.trim();
+    if (!name || !address) return;
+    const updated = [...savedViews.filter((v) => v.name !== name), { name, filter: activeFilter }];
+    setSavedViews(updated);
+    persistSavedViews(address, updated);
+    setNewViewName("");
+    setShowSaveInput(false);
+  }
+
+  function handleDeleteView(name: string) {
+    if (!address) return;
+    const updated = savedViews.filter((v) => v.name !== name);
+    setSavedViews(updated);
+    persistSavedViews(address, updated);
+  }
   const currentCursor = cursorStack[currentCursorIndex] ?? null;
 
   const fetchDisputes = useCallback(async () => {
@@ -210,9 +236,55 @@ export default function MediatorDisputesPage() {
         items={FILTERS}
         activeValue={activeFilter}
         onChange={handleFilter}
-        className="mb-6"
+        className="mb-3"
       />
 
+      {/* Saved views */}
+      <div className="flex flex-wrap items-center gap-2 mb-6" data-testid="saved-views">
+        {savedViews.map((view) => (
+          <div key={view.name} className="flex items-center gap-1">
+            <button
+              onClick={() => handleFilter(view.filter)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                activeFilter === view.filter
+                  ? "bg-gold text-text-inverse border-gold"
+                  : "bg-bg-elevated text-text-secondary border-border-default hover:border-border-hover"
+              }`}
+            >
+              {view.name}
+            </button>
+            <button
+              onClick={() => handleDeleteView(view.name)}
+              className="text-text-muted hover:text-status-error text-xs"
+              aria-label={`Delete saved view "${view.name}"`}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+
+        {showSaveInput ? (
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              value={newViewName}
+              onChange={(e) => setNewViewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSaveView(); if (e.key === "Escape") setShowSaveInput(false); }}
+              placeholder="View name"
+              className="px-2 py-1 text-xs rounded border border-border-default bg-bg-elevated text-text-primary outline-none focus:border-gold"
+            />
+            <Button size="sm" variant="primary" onClick={handleSaveView} disabled={!newViewName.trim()}>
+              Save
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setShowSaveInput(false)}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="secondary" onClick={() => setShowSaveInput(true)}>
+            + Save view
+          </Button>
+        )}
       {/* SLA legend */}
       <div className="flex items-center gap-2 mb-4 text-xs text-text-secondary">
         <span

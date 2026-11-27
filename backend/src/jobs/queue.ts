@@ -12,7 +12,6 @@ const queueConnections: IORedis[] = [];
  * workers re-attach. See docs/redis-resilience.md#queue-consumers
  */
 export function createQueueConnection(): IORedis {
-  // @ts-expect-error - ioredis URL+options constructor is valid at runtime
   const conn: IORedis = new IORedis(REDIS_URL, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
@@ -85,6 +84,13 @@ export interface ExportJobData {
   filters?: Record<string, unknown>;
 }
 
+export interface AuditExportJobData {
+  /** Row ID in the AuditExport table — used to drive status transitions. */
+  exportId: string;
+  requestedBy: string;
+  format: 'csv' | 'json';
+}
+
 export interface WebhookPurgeJobData {
   /** Retention period in days. Defaults to WEBHOOK_DELIVERY_RETENTION_DAYS env var or 30. */
   retentionDays?: number;
@@ -108,6 +114,11 @@ export const notificationQueue = new Queue<NotificationJobData>('notifications',
 });
 
 export const exportQueue = new Queue<ExportJobData>('exports', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export const auditExportQueue = new Queue<AuditExportJobData>('audit-exports', {
   connection: createQueueConnection(),
   defaultJobOptions,
 });
@@ -145,6 +156,43 @@ export const reconciliationQueue = new Queue<ReconciliationSweepJobData>('reconc
 });
 
 export const webhookPurgeQueue = new Queue<WebhookPurgeJobData>('webhook-purge', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export interface PilotFeedbackSLACheckJobData {
+  batchSize?: number;
+}
+
+export const pilotFeedbackSlaCheckQueue = new Queue<PilotFeedbackSLACheckJobData>('pilot-feedback-sla-check', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export interface TreasuryReconciliationJobData {
+  triggeredBy?: string;
+}
+
+export const treasuryReconciliationQueue = new Queue<TreasuryReconciliationJobData>('treasury-reconciliation', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export interface WalletChallengeCleanupJobData {
+  triggeredBy?: string;
+}
+
+export const walletChallengeCleanupQueue = new Queue<WalletChallengeCleanupJobData>('wallet-challenge-cleanup', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export interface AccountDeletionExportJobData {
+  walletAddress: string;
+  requestedBy?: string;
+}
+
+export const accountDeletionExportQueue = new Queue<AccountDeletionExportJobData>('account-deletion-export', {
   connection: createQueueConnection(),
   defaultJobOptions,
 });

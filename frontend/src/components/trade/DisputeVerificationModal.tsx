@@ -143,7 +143,7 @@ export function DisputeVerificationModal({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-overlay backdrop-blur-lg z-50 flex items-center justify-center p-4">
           <Dialog.Content
-            className="bg-[#122A1F] border border-border-default shadow-modal rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto flex flex-col"
+            className="bg-surface-1 border border-border-default shadow-modal rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto flex flex-col"
             aria-describedby="dispute-modal-description"
           >
             {/* Header */}

@@ -13,8 +13,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
 import { useTradeStore } from '../stores/tradeStore';
+import { usePendingTradeStore } from '../stores/pendingTradeStore';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { StrKey } from '@stellar/stellar-sdk';
 
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 // Validation rules mirrored from frontend/src/app/trades/create/validation.ts
 function validateStep1Fields(data: FormData): Record<string, string> {
   const errors: Record<string, string> = {};
@@ -357,11 +360,14 @@ function ReviewRow({ label, value, mono }: { label: string; value: string; mono?
 }
 
 export default function CreateTradeScreen({ navigation }: Props) {
+  const { contentStyle } = useResponsiveLayout();
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
   const [data, setData] = useState<FormData>(defaults);
   const [submitting, setSubmitting] = useState(false);
   const { createTrade } = useTradeStore();
+  const queueTrade = usePendingTradeStore((s) => s.queue);
+  const { isOffline } = useNetworkStatus();
 
   const update = useCallback((partial: Partial<FormData>) => {
     setData((prev) => ({ ...prev, ...partial }));
@@ -374,7 +380,7 @@ export default function CreateTradeScreen({ navigation }: Props) {
       const price = parseFloat(data.pricePerUnit);
       const amountCngn = !isNaN(qty) && !isNaN(price) ? String(qty * price) : '0';
 
-      const result = await createTrade({
+      const payload = {
         sellerAddress: data.sellerAddress,
         amountUsdc: amountCngn,
         buyerLossBps: data.buyerRatio * 100,
@@ -382,7 +388,21 @@ export default function CreateTradeScreen({ navigation }: Props) {
         commodity: data.commodity,
         quantity: data.quantity,
         unit: data.unit,
-      });
+      };
+
+      // Offline: queue the creation and let the trade list sync it once
+      // connectivity returns (issue #268).
+      if (isOffline) {
+        await queueTrade(payload);
+        Alert.alert(
+          'Saved Offline',
+          "You're offline. This trade has been saved and will be created automatically when you reconnect."
+        );
+        navigation.goBack();
+        return;
+      }
+
+      const result = await createTrade(payload);
 
       if (result) {
         Alert.alert('Trade Created', `Trade ${result.tradeId} has been created. Sign the transaction with your wallet to deposit funds.`);
@@ -410,7 +430,7 @@ export default function CreateTradeScreen({ navigation }: Props) {
         <View style={{ width: 60 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, contentStyle]}>
         <StepIndicator current={step} total={3} />
 
         {step === 0 && (

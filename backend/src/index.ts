@@ -13,9 +13,11 @@ import { initializeTracing } from "./config/tracing";
 import { HealthService } from "./services/health.service";
 import { QueueMetricsService } from "./services/queueMetrics.service";
 import { createReconciliationWorker } from "./jobs/workers/reconciliation.worker";
+import { createTreasuryReconciliationWorker } from "./jobs/workers/treasuryReconciliation.worker";
 import { createWebhookSecretPurgeWorker } from "./jobs/workers/webhookSecretPurge.worker";
 import { createPiiLogScannerWorker } from "./jobs/workers/piiLogScanner.worker";
-import { reconciliationQueue, piiScanQueue, webhookSecretPurgeQueue, closeAllQueueConnections } from "./jobs/queue";
+import { createPilotFeedbackSLAWorker } from "./jobs/workers/pilotFeedbackSla.worker";
+import { reconciliationQueue, piiScanQueue, webhookSecretPurgeQueue, treasuryReconciliationQueue, pilotFeedbackSlaCheckQueue, closeAllQueueConnections } from "./jobs/queue";
 import { redis } from "./lib/redis";
 import { ShutdownOrchestrator, Shutdownable } from "./lib/shutdown";
 import { formatConfigFingerprint } from "./config/env";
@@ -90,8 +92,10 @@ const healthService = new HealthService();
 const queueMetricsService = new QueueMetricsService();
 
 let reconciliationWorker: ReturnType<typeof createReconciliationWorker> | undefined;
+let treasuryReconciliationWorker: ReturnType<typeof createTreasuryReconciliationWorker> | undefined;
 let webhookSecretPurgeWorker: ReturnType<typeof createWebhookSecretPurgeWorker> | undefined;
 let piiLogScannerWorker: ReturnType<typeof createPiiLogScannerWorker> | undefined;
+let pilotFeedbackSLAWorker: ReturnType<typeof createPilotFeedbackSLAWorker> | undefined;
 
 async function startReconciliationCron() {
   if (!env.RECONCILIATION_CRON_ENABLED) {
@@ -116,6 +120,23 @@ async function startReconciliationCron() {
     appLogger.info("Reconciliation daily sweep scheduled (02:00 UTC)");
   } catch (error) {
     appLogger.error({ error }, "Failed to start reconciliation cron");
+  }
+}
+
+async function startTreasuryReconciliationCron() {
+  try {
+    treasuryReconciliationWorker = createTreasuryReconciliationWorker();
+    appLogger.info("Treasury reconciliation worker started");
+
+    // Schedule nightly at 03:00 UTC — offset from the account reconciliation sweep.
+    await treasuryReconciliationQueue.add(
+      "nightly-treasury-recon",
+      {},
+      { repeat: { pattern: "0 3 * * *" } },
+    );
+    appLogger.info("Treasury reconciliation nightly sweep scheduled (03:00 UTC)");
+  } catch (error) {
+    appLogger.error({ error }, "Failed to start treasury reconciliation cron");
   }
 }
 
@@ -153,6 +174,28 @@ async function startPiiScanCron() {
     appLogger.info("PII log scan scheduled (Sundays 03:00 UTC)");
   } catch (error) {
     appLogger.error({ error }, "Failed to start PII log scanner cron");
+  }
+}
+
+async function startPilotFeedbackSLACron() {
+  try {
+    pilotFeedbackSLAWorker = createPilotFeedbackSLAWorker();
+    appLogger.info("Pilot feedback SLA worker started");
+
+    // Run twice daily at 06:00 and 18:00 UTC to check for SLA violations
+    // Spaced 12 hours apart to balance coverage without excessive frequency
+    await pilotFeedbackSlaCheckQueue.add(
+      "sla-check",
+      {},
+      {
+        repeat: {
+          pattern: "0 6,18 * * *",
+        },
+      },
+    );
+    appLogger.info("Pilot feedback SLA check scheduled (06:00 and 18:00 UTC)");
+  } catch (error) {
+    appLogger.error({ error }, "Failed to start pilot feedback SLA cron");
   }
 }
 
@@ -196,8 +239,10 @@ async function bootstrap() {
     appLogger.info("QueueMetricsService started successfully");
 
     await startReconciliationCron();
+    await startTreasuryReconciliationCron();
     await startPiiScanCron();
     await startWebhookSecretPurge();
+    await startPilotFeedbackSLACron();
   });
 
   // Ordered, bounded, logged graceful shutdown.
@@ -213,7 +258,9 @@ async function bootstrap() {
     const services: Shutdownable[] = [
       {
         name: "event-listener",
-        stop: () => eventListenerService.drain(),
+        stop: async () => {
+          await eventListenerService.drain();
+        },
       },
       {
         name: "queue-metrics-service",
@@ -226,6 +273,13 @@ async function bootstrap() {
         stop: async () => {
           if (reconciliationWorker) await reconciliationWorker.close();
           else appLogger.info("Reconciliation worker not running — skipping");
+        },
+      },
+      {
+        name: "treasury-reconciliation-worker",
+        stop: async () => {
+          if (treasuryReconciliationWorker) await treasuryReconciliationWorker.close();
+          else appLogger.info("Treasury reconciliation worker not running — skipping");
         },
       },
       {
@@ -242,15 +296,29 @@ async function bootstrap() {
         },
       },
       {
+        name: "pilot-feedback-sla-worker",
+        stop: async () => {
+          if (pilotFeedbackSLAWorker) await pilotFeedbackSLAWorker.close();
+          else appLogger.info("Pilot feedback SLA worker not running — skipping");
+        },
+      },
+      {
         name: "queue-connections",
         stop: async () => {
           await reconciliationQueue.close();
+          await treasuryReconciliationQueue.close();
           await piiScanQueue.close();
           await webhookSecretPurgeQueue.close();
+          await pilotFeedbackSlaCheckQueue.close();
           await closeAllQueueConnections();
         },
       },
-      { name: "redis", stop: () => redis.quit() },
+      {
+        name: "redis",
+        stop: async () => {
+          await redis.quit();
+        },
+      },
       { name: "database", stop: () => prisma.$disconnect() },
     ];
     await shutDownOrchestrator.shutdown(signal, server, services);

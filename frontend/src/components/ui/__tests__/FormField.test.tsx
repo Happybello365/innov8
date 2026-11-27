@@ -102,6 +102,7 @@ describe('FormField Component', () => {
         const input = screen.getByRole('textbox');
         const describedBy = input.getAttribute('aria-describedby');
         expect(describedBy).toContain('error');
+        expect(document.getElementById(describedBy!)).toHaveTextContent('Error message');
     });
 
     it('sets aria-describedby with hint id when hint is present', () => {

@@ -41,9 +41,14 @@ export async function isAlreadyProcessed(
  * Returns true if the error is a Prisma unique-constraint violation (P2002).
  */
 export function isPrismaUniqueConstraintError(err: unknown): boolean {
-  return (
-    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
-  );
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return err.code === "P2002";
+  }
+  // Fall back to a duck-typed check: some call sites (and tests) pass a
+  // plain object shape rather than a real PrismaClientKnownRequestError
+  // instance, which `instanceof` alone would miss across module/realm
+  // boundaries.
+  return (err as { code?: unknown } | null | undefined)?.code === "P2002";
 }
 
 /**

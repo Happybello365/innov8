@@ -153,6 +153,39 @@ screens (`AdminStreamsOverview`, `AdminTradesBatch`, `AdminContract`,
 See [`docs/admin-errors.md`](docs/admin-errors.md) for the full code → action
 table, the per-screen error-slot model, and how to add a new error code.
 
+## High-value trade re-authentication (#269)
+
+Confirming delivery or releasing funds on a trade **above a threshold** requires
+a fresh biometric check (Face ID / fingerprint), falling back to the device
+passcode, via `expo-local-authentication`. Trades at or below the threshold are
+unaffected. If the check fails, is cancelled, or the device has no passcode or
+biometrics, the action is blocked.
+
+The threshold comes from the existing feature-flag mechanism:
+
+| Flag | `enabled` | `value` |
+|------|-----------|---------|
+| `high_value_trade_reauth` | turns the check on/off (supports `rolloutPercentage`) | threshold in USDC |
+
+Set it from the admin API, e.g. `PATCH /api/admin/features/high_value_trade_reauth`
+with `{ "enabled": true, "value": 5000 }`. The app reads it from
+`GET /features/high_value_trade_reauth`. If the flag cannot be loaded (offline,
+API error) the check stays on with a default threshold of 1,000 USDC, so it is
+never silently skipped. Logic: `src/services/highValueReauth.ts`.
+
+## Tablet and large-screen layout (#270)
+
+Breakpoints live in `src/constants/theme.ts` (`BREAKPOINTS`, `LAYOUT`) and are
+read through `useResponsiveLayout()`:
+
+- **≥ 768dp:** the trade list and trade detail render side by side (list pane
+  38% of the width, clamped to 320–440dp). Tapping a trade updates the detail
+  pane instead of pushing a new screen.
+- **Tablet widths:** single-column screens (create trade, wallet connect,
+  evidence capture, about, home, vault, trade detail) cap their content at
+  720dp and centre it instead of stretching edge to edge.
+- **Phones:** unchanged.
+
 ## Backend integration
 
 This mobile client integrates with the Amana backend API described in the monorepo documentation.

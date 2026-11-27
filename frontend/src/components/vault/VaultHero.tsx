@@ -21,9 +21,9 @@ export function VaultHero({
         <p className="text-xs font-semibold tracking-widest text-gold uppercase mb-2">
           Vault System Active
         </p>
-        <h1 className="text-4xl md:text-5xl font-bold text-text-primary">
+        <h2 className="text-4xl md:text-5xl font-bold text-text-primary">
           Escrow #{escrowId}
-        </h1>
+        </h2>
         <p className="text-3xl md:text-4xl font-light text-text-muted">
           {custodyType}
         </p>

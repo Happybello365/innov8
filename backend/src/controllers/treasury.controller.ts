@@ -25,10 +25,12 @@ export class TreasuryController {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const { destination, amount, note } = req.body as {
+      const { destination, amount, note, currency, asset } = req.body as {
         destination: string;
         amount: string | number;
         note?: string;
+        currency?: string;
+        asset?: string;
       };
 
       // Convert amount to string for the service

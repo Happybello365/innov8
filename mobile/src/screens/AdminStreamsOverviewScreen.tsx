@@ -20,6 +20,7 @@ import { buildSupportMailto } from '../constants/support';
 import { useAdminActionHistoryStore } from '../stores/adminActionHistoryStore';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { OfflineBanner } from '../components/OfflineBanner';
+import { useOfflineQueueStore } from '../stores/offlineQueueStore';
 
 type Props = StackScreenProps<RootStackParamList, 'AdminStreamsOverview'>;
 
@@ -73,6 +74,9 @@ export default function AdminStreamsOverviewScreen({
     clearAuth: () => Promise<void>;
   };
   const { isOffline } = useNetworkStatus();
+  const queuedActions = useOfflineQueueStore((s) => s.actions);
+  const retryQueuedAction = useOfflineQueueStore((s) => s.retry);
+  const hasFailedActions = queuedActions.some((a) => a.status === 'failed');
   const isAdmin = role === 'admin';
   const { addAction } = useAdminActionHistoryStore();
 
@@ -172,7 +176,12 @@ export default function AdminStreamsOverviewScreen({
         />
       ) : null}
 
-      {isOffline ? <OfflineBanner /> : null}
+      {isOffline || hasFailedActions ? (
+        <OfflineBanner
+          queuedActions={queuedActions}
+          onRetryAction={(id) => void retryQueuedAction(id)}
+        />
+      ) : null}
 
       {loading ? (
         <View style={styles.loadingRow}>

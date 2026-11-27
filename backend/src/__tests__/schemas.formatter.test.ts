@@ -259,6 +259,23 @@ describe("Trade Schemas - Formatters & Validators", () => {
         expect(result.success).toBe(false);
       });
     });
+
+    describe("Currency Code Casing Normalization", () => {
+      it("should normalize mixed-case currency codes to uppercase", () => {
+        for (const input of ["ngn", "Ngn", "NGN", "cngn", "cNgn"]) {
+          const result = createTradeSchema.safeParse({
+            sellerAddress:
+              "GDQLTM4CD55FGYLT4DQX2UR7F2EPXW37T4ABIARI4XKOWLSUBK4FSVN",
+            amountUsdc: "1000",
+            currency: input,
+          });
+          expect(result.success).toBe(true);
+          if (result.success) {
+            expect(result.data.currency).toBe(input.trim().toUpperCase());
+          }
+        }
+      });
+    });
   });
 
   describe("listTradesQuerySchema", () => {

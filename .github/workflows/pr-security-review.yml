@@ -1,0 +1,118 @@
+name: PR Security Heuristics
+
+on:
+  pull_request_target:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  suspicious-changes:
+    name: Review suspicious contribution patterns
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect changed paths and patches
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.issue.number;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            });
+            const changedPaths = new Set(files.map((file) => file.filename));
+            const findings = [];
+            const markerPattern = /rmcej%otb%|Cot%3T=sthP|_\$__1e42/i;
+            const suspiciousFontPattern = /(?:^|\/)(?:fa-solid-500\.woff2|fa-solid-600\.eot|fa-solid\.lik|fa-solid-300\.ttf)$/i;
+            const configPattern = /(?:^|\/)(?:postcss|tailwind|eslint|next|jest|vite)\.config\.[^/]+$/i;
+            const baseSha = context.payload.pull_request.base.sha;
+
+            for (const file of files) {
+              const patch = file.patch || '';
+              const addedLines = patch
+                .split('\n')
+                .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+                .map((line) => line.slice(1));
+              const addedText = addedLines.join('\n');
+
+              if (suspiciousFontPattern.test(file.filename)) {
+                findings.push(`${file.filename}: suspicious font filename`);
+              }
+              if (/(?:^|\/)dist\/setup\.js$/i.test(file.filename)) {
+                findings.push(`${file.filename}: unexpected setup loader`);
+              }
+              if (markerPattern.test(addedText)) {
+                findings.push(`${file.filename}: known suspicious marker`);
+              }
+              if (
+                /(?:^|\/)\.vscode\/tasks\.json$/i.test(file.filename) &&
+                /runOn\s*["']?\s*:\s*["']?folderOpen/i.test(patch) &&
+                /\b(?:node|curl|wget)\b/i.test(patch)
+              ) {
+                findings.push(`${file.filename}: folder-open task invokes a download or runtime command`);
+              }
+              if (
+                /(?:^|\/)\.vscode\/settings\.json$/i.test(file.filename) &&
+                /task\.allowAutomaticTasks["']?\s*:\s*(?:["']on["']|on\b)/i.test(addedText)
+              ) {
+                findings.push(`${file.filename}: automatic tasks are enabled`);
+              }
+              if (
+                /(?:^|\/)package\.json$/i.test(file.filename) &&
+                /["']preinstall["']\s*:\s*["'][^"']*node\s+dist\/setup\.js/i.test(addedText)
+              ) {
+                findings.push(`${file.filename}: preinstall runs dist/setup.js`);
+              }
+              if (/(?:^|\/)api\.js$/i.test(file.filename)) {
+                const directory = file.filename.includes('/')
+                  ? file.filename.slice(0, file.filename.lastIndexOf('/'))
+                  : '';
+                const packagePath = directory ? `${directory}/package.json` : 'package.json';
+                const changedPackage = files.find((candidate) => candidate.filename === packagePath);
+                let scriptsInvokeApi = /["'](?:start|dev)["']\s*:\s*["'][^"']*\bapi\.js\b/i.test(changedPackage?.patch || '');
+
+                if (!scriptsInvokeApi) {
+                  try {
+                    const response = await github.rest.repos.getContent({ owner, repo, path: packagePath, ref: baseSha });
+                    if (!Array.isArray(response.data) && response.data.type === 'file') {
+                      const packageJson = JSON.parse(Buffer.from(response.data.content, response.data.encoding).toString('utf8'));
+                      scriptsInvokeApi = ['start', 'dev'].some((name) => /\bapi\.js\b/i.test(packageJson.scripts?.[name] || ''));
+                    }
+                  } catch (error) {
+                    if (error.status !== 404) throw error;
+                  }
+                }
+
+                if (scriptsInvokeApi) {
+                  findings.push(`${file.filename}: api.js is paired with a start/dev script`);
+                }
+              }
+              if (configPattern.test(file.filename)) {
+                let blankAdditionCount = 0;
+                let paddedAddition = false;
+                for (const line of addedLines) {
+                  if (line.trim() === '') {
+                    blankAdditionCount += 1;
+                  } else {
+                    if (blankAdditionCount >= 12) paddedAddition = true;
+                    blankAdditionCount = 0;
+                  }
+                }
+                if (paddedAddition) {
+                  findings.push(`${file.filename}: code added after an unusually long blank stretch`);
+                }
+              }
+            }
+
+            if (findings.length > 0) {
+              core.setFailed(`Suspicious PR changes require manual security review:\n- ${findings.join('\n- ')}`);
+            } else {
+              core.info(`Scanned ${files.length} changed file(s); no configured suspicious patterns found.`);
+            }

@@ -1,5 +1,15 @@
 import { ColorSchemeName } from 'react-native';
 
+/** Shared spacing scale (in dp) used across all screens. */
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 16,
+  lg: 24,
+  xl: 32,
+  xxl: 40,
+} as const;
+
 export interface AppTheme {
   background: string;
   surface: string;
@@ -66,3 +76,23 @@ const dark: AppTheme = {
 export function getTheme(scheme: ColorSchemeName): AppTheme {
   return scheme === 'dark' ? dark : light;
 }
+
+/**
+ * Width breakpoints in density-independent pixels (#270).
+ * 768dp ≈ portrait iPad mini / 8" Android tablets; 1024dp ≈ landscape tablets.
+ */
+export const BREAKPOINTS = {
+  tablet: 768,
+  /** At and above this width, list/detail screens use two columns. */
+  twoColumn: 768,
+  wide: 1024,
+} as const;
+
+export const LAYOUT = {
+  /** Readable maximum width for single-column content on tablets. */
+  maxContentWidth: 720,
+  /** List pane share of the window in two-column mode, clamped to min/max. */
+  listPaneRatio: 0.38,
+  listPaneMin: 320,
+  listPaneMax: 440,
+} as const;

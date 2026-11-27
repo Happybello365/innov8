@@ -156,7 +156,13 @@ export default function NotificationsInboxScreen({ navigation }: Props) {
             <Text style={[styles.markAllBtn, { color: theme.primary }]}>Mark all read</Text>
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 70 }} />
+          <TouchableOpacity
+            onPress={() => navigation.navigate('NotificationPreferences')}
+            accessibilityRole="button"
+            accessibilityLabel="Notification preferences"
+          >
+            <Text style={[styles.markAllBtn, { color: theme.primary }]}>Settings</Text>
+          </TouchableOpacity>
         )}
       </View>
 

@@ -1,9 +1,15 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { OfflineQueueList } from './OfflineQueueList';
+import type { QueuedAction } from '../stores/offlineQueueStore';
 
 interface OfflineBannerProps {
   /** Optional override for the headline text. Defaults to a generic message. */
   message?: string;
+  /** Actions queued while offline, shown with a per-item status (#263). */
+  queuedActions?: QueuedAction[];
+  /** Retry a single failed queued action. */
+  onRetryAction?: (id: string) => void;
 }
 
 /**
@@ -14,7 +20,11 @@ interface OfflineBannerProps {
  * presentational: callers decide *when* to render it based on a network
  * status hook.
  */
-export function OfflineBanner({ message }: OfflineBannerProps): React.JSX.Element {
+export function OfflineBanner({
+  message,
+  queuedActions = [],
+  onRetryAction = () => {},
+}: OfflineBannerProps): React.JSX.Element {
   const body =
     message ??
     "You're offline. Admin actions can't be submitted until the device reconnects.";
@@ -28,6 +38,7 @@ export function OfflineBanner({ message }: OfflineBannerProps): React.JSX.Elemen
     >
       <Text style={styles.headline}>No connection</Text>
       <Text style={styles.body}>{body}</Text>
+      <OfflineQueueList actions={queuedActions} onRetry={onRetryAction} />
     </View>
   );
 }

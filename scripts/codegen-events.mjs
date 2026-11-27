@@ -194,6 +194,7 @@ const TS_TYPES = {
   u128: "bigint",
   i64: "bigint",
   "soroban_sdk::String": "string",
+  QuorumOutcome: "string",
 };
 
 /**

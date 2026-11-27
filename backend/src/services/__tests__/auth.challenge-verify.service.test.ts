@@ -20,8 +20,11 @@ class MockJsonWebTokenError extends Error {}
 
 jest.mock(
   'ioredis',
-  () => jest.fn().mockImplementation(() => mockRedis),
-  { virtual: true },
+  () => {
+    const ctor = jest.fn().mockImplementation(() => mockRedis);
+    (ctor as any)._instance = mockRedis;
+    return ctor;
+  },
 );
 
 jest.mock('jsonwebtoken', () => ({
@@ -116,7 +119,9 @@ describe('AuthService challenge/verify flow', () => {
       Buffer.from('challenge-value', 'utf8'),
       Buffer.from('c2lnbmVkLWNoYWxsZW5nZQ', 'base64url'),
     );
-    expect(findOrCreateUser).toHaveBeenCalledWith(walletAddress);
+    // findOrCreateUser must receive the normalised (lowercase) address so the
+    // DB unique constraint is never violated by mixed-case submissions.
+    expect(findOrCreateUser).toHaveBeenCalledWith(walletAddress.toLowerCase());
 
     const issuedAt = Math.floor(issuedAtMs / 1000);
     expect(mockJwtSign).toHaveBeenCalledWith(
@@ -124,6 +129,10 @@ describe('AuthService challenge/verify flow', () => {
         sub: walletAddress.toLowerCase(),
         walletAddress: walletAddress.toLowerCase(),
         jti: '123e4567-e89b-12d3-a456-426614174000',
+        // fid defaults to jti when no family is passed (first token in a rotation family)
+        fid: '123e4567-e89b-12d3-a456-426614174000',
+        // tv (token version) starts at 0 for a fresh wallet
+        tv: 0,
         iss: 'amana',
         aud: 'amana-api',
         iat: issuedAt,
@@ -207,5 +216,60 @@ describe('AuthService challenge/verify flow', () => {
 
     expect(mockRedis.del).toHaveBeenCalledWith(challengeKey);
     expect(mockJwtSign).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Case-insensitive identity (walletAddress normalisation)
+  // -------------------------------------------------------------------------
+
+  describe('case-insensitive walletAddress normalisation', () => {
+    it('generateChallenge stores the challenge under the lowercase Redis key regardless of input casing', async () => {
+      // A client that submits the address with mixed casing (e.g. upper-case
+      // as returned by the Stellar SDK, or any other variant) must land on
+      // the same Redis key as the lowercase canonical form.
+      const upperCaseAddress = walletAddress.toUpperCase();
+
+      await AuthService.generateChallenge(upperCaseAddress);
+
+      // The Redis key must use the normalised (lowercase) form.
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        `challenge:${walletAddress.toLowerCase()}`,
+        expect.any(String),
+        'EX',
+        300,
+      );
+    });
+
+    it('verifySignatureAndIssueJWT passes the normalised address to findOrCreateUser regardless of input casing', async () => {
+      // Mixed-case walletAddress from the caller — simulates a client that
+      // sends the address in a non-canonical casing.
+      const mixedCaseAddress = walletAddress
+        .split('')
+        .map((c, i) => (i % 2 === 0 ? c.toUpperCase() : c.toLowerCase()))
+        .join('');
+
+      mockRedis.get.mockResolvedValue('challenge-value');
+
+      await AuthService.verifySignatureAndIssueJWT(mixedCaseAddress, 'c2lnbmVkLWNoYWxsZW5nZQ');
+
+      // Regardless of the input casing, the user record must be looked up /
+      // created with the lowercase address to uphold the unique constraint.
+      expect(findOrCreateUser).toHaveBeenCalledWith(walletAddress.toLowerCase());
+    });
+
+    it('User@x.com equivalence: two callers with differently-cased addresses are treated as the same user', async () => {
+      // First call: canonical lowercase address.
+      mockRedis.get.mockResolvedValue('challenge-value');
+      await AuthService.verifySignatureAndIssueJWT(walletAddress, 'c2lnbmVkLWNoYWxsZW5nZQ');
+
+      // Second call: same address but in a different casing.
+      const upperCaseAddress = walletAddress.toUpperCase();
+      mockRedis.get.mockResolvedValue('challenge-value');
+      await AuthService.verifySignatureAndIssueJWT(upperCaseAddress, 'c2lnbmVkLWNoYWxsZW5nZQ');
+
+      // Both calls must resolve to the same normalised identity.
+      expect(findOrCreateUser).toHaveBeenNthCalledWith(1, walletAddress.toLowerCase());
+      expect(findOrCreateUser).toHaveBeenNthCalledWith(2, walletAddress.toLowerCase());
+    });
   });
 });

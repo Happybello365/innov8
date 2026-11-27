@@ -98,4 +98,32 @@ describe("Money-action flows — axe WCAG 2.1 AA", () => {
       expect(await axe(container)).toHaveNoViolations();
     });
   });
+
+  describe("Create-trade inline errors — aria-describedby association (#234)", () => {
+    it("error paragraph id is referenced by the input aria-describedby when an error is shown", () => {
+      // Render a raw input + error paragraph using the same pattern as
+      // Step1Details and Step2Negotiation so the axe association is verifiable
+      // without requiring the full TradeContext.
+      const errorId = "error-quantity";
+      const { container } = render(
+        <div>
+          <label htmlFor="quantity">Quantity</label>
+          <input
+            id="quantity"
+            type="number"
+            aria-invalid={true}
+            aria-describedby={errorId}
+          />
+          <p id={errorId} role="alert" aria-live="polite">
+            Quantity must be greater than 0
+          </p>
+        </div>
+      );
+      const input = container.querySelector("input")!;
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(input.getAttribute("aria-describedby")).toBe(errorId);
+      const errorEl = document.getElementById(errorId);
+      expect(errorEl).not.toBeNull();
+    });
+  });
 });

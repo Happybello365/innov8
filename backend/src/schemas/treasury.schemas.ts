@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { StrKey } from "@stellar/stellar-sdk";
 import { moneyString } from "./money.schemas";
+import { currencyCode } from "./domain/trade";
 
 const stellarPublicKey = (fieldName: string) =>
   z.string().refine((v: string) => StrKey.isValidEd25519PublicKey(v), {
@@ -16,5 +17,7 @@ const amount = moneyString();
 export const treasuryWithdrawSchema = z.object({
   destination: stellarPublicKey("destination"),
   amount,
+  currency: currencyCode,
+  asset: currencyCode,
   note: z.string().max(2000, "Note must be 2000 characters or fewer").optional(),
 });

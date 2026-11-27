@@ -31,11 +31,17 @@ export const usdcAmount = z.union([
   z.number().positive("Amount must be positive").transform(String),
 ]);
 
+export const currencyCode = z.preprocess(
+  (val) => (typeof val === "string" ? val.trim().toUpperCase() : val),
+  z.string().min(1, "Currency code cannot be empty").optional(),
+);
+
 export const createTradeInputSchema = z
   .object({
     buyerAddress: stellarPublicKey.optional(),
     sellerAddress: stellarPublicKey,
     amountUsdc: usdcAmount,
+    currency: currencyCode,
     buyerLossBps: lossBps.optional(),
     sellerLossBps: lossBps.optional(),
     description: z.string().optional(),

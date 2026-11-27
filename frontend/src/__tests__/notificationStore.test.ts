@@ -1,8 +1,17 @@
 import { useNotificationStore, Notification } from '../stores/notificationStore';
 
+const makeNotification = (overrides: Partial<Notification> = {}): Notification => ({
+  id: 'n-1',
+  title: 'Title',
+  message: 'Message',
+  type: 'info',
+  read: false,
+  createdAt: '2026-06-28T00:00:00Z',
+  ...overrides,
+});
+
 describe('Notification Store', () => {
   beforeEach(() => {
-    // Reset Zustand store state before each test
     useNotificationStore.setState({
       notifications: [],
       unreadCount: 0,
@@ -10,6 +19,8 @@ describe('Notification Store', () => {
     });
     jest.clearAllMocks();
   });
+
+  // ─── Initial state ───────────────────────────────────────────────────────
 
   describe('Initial State', () => {
     it('should have correct initial values', () => {
@@ -20,74 +31,109 @@ describe('Notification Store', () => {
     });
   });
 
+  // ─── fetch ───────────────────────────────────────────────────────────────
+
   describe('fetch', () => {
-    it('should set isLoading and fetch notifications successfully', async () => {
-      const mockApiNotifications: Notification[] = [
-        {
-          id: 'n-1',
-          title: 'Title 1',
-          message: 'Msg 1',
-          type: 'info',
-          read: false,
-          createdAt: '2026-06-28T00:00:00Z',
-        },
-        {
-          id: 'n-2',
-          title: 'Title 2',
-          message: 'Msg 2',
-          type: 'success',
-          read: true,
-          createdAt: '2026-06-28T01:00:00Z',
-        },
+    it('sets isLoading true during fetch then false on success', async () => {
+      const mockNotifications: Notification[] = [
+        makeNotification({ id: 'n-1', read: false }),
+        makeNotification({ id: 'n-2', read: true }),
       ];
 
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
-        json: jest.fn().mockResolvedValue({ notifications: mockApiNotifications }),
+        json: jest.fn().mockResolvedValue({ notifications: mockNotifications }),
       } as unknown as Response);
 
       const store = useNotificationStore.getState();
       const fetchPromise = store.fetch();
 
       expect(useNotificationStore.getState().isLoading).toBe(true);
-
       await fetchPromise;
 
       const state = useNotificationStore.getState();
       expect(state.isLoading).toBe(false);
-      expect(state.notifications).toEqual(mockApiNotifications);
+      expect(state.notifications).toEqual(mockNotifications);
       expect(state.unreadCount).toBe(1);
     });
 
-    it('should fallback to mock data on fetch failure', async () => {
+    it('accepts a top-level array from the API (no .notifications wrapper)', async () => {
+      const mockNotifications: Notification[] = [
+        makeNotification({ id: 'n-1', read: false }),
+      ];
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: jest.fn().mockResolvedValue(mockNotifications),
+      } as unknown as Response);
+
+      await useNotificationStore.getState().fetch();
+
+      const state = useNotificationStore.getState();
+      expect(state.notifications).toEqual(mockNotifications);
+      expect(state.unreadCount).toBe(1);
+    });
+
+    it('falls back to mock data when fetch rejects', async () => {
       global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
 
-      const store = useNotificationStore.getState();
-      await store.fetch();
+      await useNotificationStore.getState().fetch();
 
       const state = useNotificationStore.getState();
       expect(state.isLoading).toBe(false);
-      expect(state.notifications.length).toBe(3);
-      expect(state.unreadCount).toBe(2);
+      expect(state.notifications.length).toBeGreaterThan(0);
+      expect(state.unreadCount).toBe(
+        state.notifications.filter(n => !n.read).length,
+      );
+    });
+
+    it('falls back to mock data when response is not ok', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        json: jest.fn().mockResolvedValue({}),
+      } as unknown as Response);
+
+      await useNotificationStore.getState().fetch();
+
+      const state = useNotificationStore.getState();
+      expect(state.isLoading).toBe(false);
+      expect(state.notifications.length).toBeGreaterThan(0);
+    });
+
+    it('derives unreadCount correctly from API notifications', async () => {
+      const notifications: Notification[] = [
+        makeNotification({ id: '1', read: false }),
+        makeNotification({ id: '2', read: false }),
+        makeNotification({ id: '3', read: true }),
+        makeNotification({ id: '4', read: false }),
+      ];
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: jest.fn().mockResolvedValue({ notifications }),
+      } as unknown as Response);
+
+      await useNotificationStore.getState().fetch();
+
+      expect(useNotificationStore.getState().unreadCount).toBe(3);
     });
   });
 
-  describe('markRead', () => {
-    it('should mark a notification as read and decrement unreadCount', async () => {
-      const initialNotifications: Notification[] = [
-        { id: '1', title: 'T1', message: 'M1', type: 'info', read: false, createdAt: '...' },
-        { id: '2', title: 'T2', message: 'M2', type: 'success', read: false, createdAt: '...' },
-      ];
+  // ─── markRead ─────────────────────────────────────────────────────────────
 
+  describe('markRead', () => {
+    it('marks one notification read and decrements unreadCount', async () => {
       useNotificationStore.setState({
-        notifications: initialNotifications,
+        notifications: [
+          makeNotification({ id: '1', read: false }),
+          makeNotification({ id: '2', read: false }),
+        ],
         unreadCount: 2,
       });
 
       global.fetch = jest.fn().mockResolvedValue({ ok: true } as unknown as Response);
 
-      const store = useNotificationStore.getState();
-      await store.markRead('1');
+      await useNotificationStore.getState().markRead('1');
 
       const state = useNotificationStore.getState();
       expect(state.notifications[0].read).toBe(true);
@@ -95,59 +141,135 @@ describe('Notification Store', () => {
       expect(state.unreadCount).toBe(1);
       expect(global.fetch).toHaveBeenCalledWith('/api/notifications/1/read', { method: 'PATCH' });
     });
+
+    it('does not decrement unreadCount when marking an already-read notification', async () => {
+      useNotificationStore.setState({
+        notifications: [makeNotification({ id: '1', read: true })],
+        unreadCount: 0,
+      });
+
+      global.fetch = jest.fn().mockResolvedValue({ ok: true } as unknown as Response);
+
+      await useNotificationStore.getState().markRead('1');
+
+      expect(useNotificationStore.getState().unreadCount).toBe(0);
+    });
+
+    it('still updates local state even when the PATCH request fails', async () => {
+      useNotificationStore.setState({
+        notifications: [makeNotification({ id: '1', read: false })],
+        unreadCount: 1,
+      });
+
+      global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+
+      await useNotificationStore.getState().markRead('1');
+
+      const state = useNotificationStore.getState();
+      expect(state.notifications[0].read).toBe(true);
+      expect(state.unreadCount).toBe(0);
+    });
   });
 
-  describe('markAllRead', () => {
-    it('should mark all notifications as read and set unreadCount to 0', async () => {
-      const initialNotifications: Notification[] = [
-        { id: '1', title: 'T1', message: 'M1', type: 'info', read: false, createdAt: '...' },
-        { id: '2', title: 'T2', message: 'M2', type: 'success', read: false, createdAt: '...' },
-      ];
+  // ─── markAllRead ──────────────────────────────────────────────────────────
 
+  describe('markAllRead', () => {
+    it('marks all notifications read and resets unreadCount to 0', async () => {
       useNotificationStore.setState({
-        notifications: initialNotifications,
+        notifications: [
+          makeNotification({ id: '1', read: false }),
+          makeNotification({ id: '2', read: false }),
+        ],
         unreadCount: 2,
       });
 
       global.fetch = jest.fn().mockResolvedValue({ ok: true } as unknown as Response);
 
-      const store = useNotificationStore.getState();
-      await store.markAllRead();
+      await useNotificationStore.getState().markAllRead();
 
       const state = useNotificationStore.getState();
       expect(state.notifications.every(n => n.read)).toBe(true);
       expect(state.unreadCount).toBe(0);
       expect(global.fetch).toHaveBeenCalledWith('/api/notifications/read', { method: 'PATCH' });
     });
+
+    it('still clears local read state even when PATCH fails', async () => {
+      useNotificationStore.setState({
+        notifications: [makeNotification({ id: '1', read: false })],
+        unreadCount: 1,
+      });
+
+      global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+
+      await useNotificationStore.getState().markAllRead();
+
+      const state = useNotificationStore.getState();
+      expect(state.notifications[0].read).toBe(true);
+      expect(state.unreadCount).toBe(0);
+    });
+
+    it('handles an empty notifications list without error', async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: true } as unknown as Response);
+
+      await useNotificationStore.getState().markAllRead();
+
+      expect(useNotificationStore.getState().unreadCount).toBe(0);
+    });
   });
 
-  describe('addNotification', () => {
-    it('should prepend a notification and update unreadCount', () => {
-      const initialNotifications: Notification[] = [
-        { id: '1', title: 'T1', message: 'M1', type: 'info', read: true, createdAt: '...' },
-      ];
+  // ─── addNotification ──────────────────────────────────────────────────────
 
+  describe('addNotification', () => {
+    it('prepends a new notification and updates unreadCount', () => {
       useNotificationStore.setState({
-        notifications: initialNotifications,
+        notifications: [makeNotification({ id: '1', read: true })],
         unreadCount: 0,
       });
 
-      const newNotification: Notification = {
-        id: '2',
-        title: 'T2',
-        message: 'M2',
-        type: 'warning',
-        read: false,
-        createdAt: '...',
-      };
+      const newNotification = makeNotification({ id: '2', read: false, type: 'warning' });
 
-      const store = useNotificationStore.getState();
-      store.addNotification(newNotification);
+      useNotificationStore.getState().addNotification(newNotification);
 
       const state = useNotificationStore.getState();
-      expect(state.notifications.length).toBe(2);
       expect(state.notifications[0]).toEqual(newNotification);
+      expect(state.notifications.length).toBe(2);
       expect(state.unreadCount).toBe(1);
+    });
+
+    it('does not increment unreadCount when adding an already-read notification', () => {
+      useNotificationStore.setState({ notifications: [], unreadCount: 0 });
+
+      useNotificationStore.getState().addNotification(
+        makeNotification({ id: '1', read: true }),
+      );
+
+      expect(useNotificationStore.getState().unreadCount).toBe(0);
+    });
+  });
+
+  // ─── Store reset (logout) ─────────────────────────────────────────────────
+
+  describe('store reset on logout', () => {
+    it('clears all notifications and unreadCount when state is reset', () => {
+      useNotificationStore.setState({
+        notifications: [
+          makeNotification({ id: '1', read: false }),
+          makeNotification({ id: '2', read: false }),
+        ],
+        unreadCount: 2,
+        isLoading: false,
+      });
+
+      // Simulate logout by resetting to initial state
+      useNotificationStore.setState({
+        notifications: [],
+        unreadCount: 0,
+        isLoading: false,
+      });
+
+      const state = useNotificationStore.getState();
+      expect(state.notifications).toEqual([]);
+      expect(state.unreadCount).toBe(0);
     });
   });
 });

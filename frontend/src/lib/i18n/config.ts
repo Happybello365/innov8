@@ -5,7 +5,7 @@
 export const DEFAULT_LOCALE = "en-NG";
 export const DEFAULT_CURRENCY = "NGN";
 
-export const SUPPORTED_LOCALES = ["en-NG", "en-US", "pseudo"] as const;
+export const SUPPORTED_LOCALES = ["en-NG", "pcm", "en-US", "pseudo"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
 /**
@@ -28,7 +28,8 @@ export function resolveLocale(explicit?: Locale): Locale {
   return DEFAULT_LOCALE;
 }
 
-/** Locale actually handed to `Intl` — "pseudo" has no CLDR data, fall back to en-NG. */
+/** Locale actually handed to `Intl` — "pseudo" and "pcm" have no CLDR data; fall back to en-NG. */
 export function intlLocale(locale: Locale): string {
-  return locale === "pseudo" ? DEFAULT_LOCALE : locale;
+  if (locale === "pseudo" || locale === "pcm") return DEFAULT_LOCALE;
+  return locale;
 }

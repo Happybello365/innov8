@@ -283,5 +283,37 @@ describe("Treasury Routes - POST /treasury/withdraw", () => {
 
       expect(res.status).toBe(200);
     });
+
+    it("accepts mixed-case currency and normalizes it to uppercase before validation", async () => {
+      for (const currencyInput of ["ngn", "Ngn", "NGN", "cngn", "cNgn"]) {
+        mockTreasuryService.withdraw.mockResolvedValue({ unsignedXdr: "test-xdr" });
+
+        const res = await request(app)
+          .post("/treasury/withdraw")
+          .set("Authorization", `Bearer ${adminToken}`)
+          .send({
+            destination: destinationAddress,
+            amount: "100",
+            currency: currencyInput,
+          });
+
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it("accepts mixed-case asset code and normalizes it to uppercase", async () => {
+      mockTreasuryService.withdraw.mockResolvedValue({ unsignedXdr: "test-xdr" });
+
+      const res = await request(app)
+        .post("/treasury/withdraw")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          destination: destinationAddress,
+          amount: "50",
+          asset: "ngn",
+        });
+
+      expect(res.status).toBe(200);
+    });
   });
 });

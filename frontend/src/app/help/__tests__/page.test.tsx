@@ -27,6 +27,13 @@ describe("Help & FAQ page", () => {
     expect(link).toHaveAttribute("href", `mailto:${SUPPORT_EMAIL}`);
   });
 
+  it("opens external resources safely in a new tab", () => {
+    render(<HelpPage />);
+    const link = screen.getByRole("link", { name: /Stellar Developer Docs/ });
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
   it("uses unique ids so questions can be deep-linked", () => {
     const ids = FAQ_SECTIONS.flatMap((s) => [s.id, ...s.items.map((i) => i.id)]);
     expect(new Set(ids).size).toBe(ids.length);

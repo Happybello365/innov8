@@ -56,7 +56,7 @@ export const idempotencyMiddleware = async (
       return res.status(status).json(body);
     }
 
-    const lock = await redis.set(lockKey, "1", "NX", "EX", IDEMPOTENCY_LOCK_TTL);
+    const lock = await redis.set(lockKey, "1", "EX", IDEMPOTENCY_LOCK_TTL, "NX");
 
     if (lock !== "OK") {
       // The first request may have finished between our cache read and the lock attempt.

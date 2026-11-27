@@ -22,6 +22,8 @@ const featureNameParamSchema = z.object({
 const updateFlagBodySchema = z.object({
   enabled: z.boolean(),
   rolloutPercentage: z.number().min(0).max(100).optional(),
+  /** Optional numeric setting, e.g. the high-value re-auth threshold in USDC (#269). */
+  value: z.number().finite().min(0).optional(),
 });
 
 const adminRateLimit = createWalletRateLimiter(RATE_LIMIT_CONFIG.admin);
@@ -53,14 +55,16 @@ export function createAdminFeaturesRouter() {
     async (req: AuthRequest, res: Response, next) => {
       try {
         const name = String(req.params.name);
-        const { enabled, rolloutPercentage } = req.body as {
+        const { enabled, rolloutPercentage, value } = req.body as {
           enabled: boolean;
           rolloutPercentage?: number;
+          value?: number;
         };
 
         const flag = await featureFlagService.setFlag(name, {
           enabled,
           rolloutPercentage,
+          value,
         });
 
         // Admin audit: record which admin changed a feature flag
@@ -73,6 +77,7 @@ export function createAdminFeaturesRouter() {
             featureName: name,
             enabled,
             rolloutPercentage: rolloutPercentage ?? null,
+            value: value ?? null,
             adminAddress: req.user?.walletAddress,
             traceId: traceCtx?.traceId,
             spanId: traceCtx?.spanId,

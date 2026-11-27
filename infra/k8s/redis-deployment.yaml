@@ -35,10 +35,21 @@ spec:
       # Give Redis time to flush the AOF on SIGTERM.
       terminationGracePeriodSeconds: 30
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
         fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
           image: redis:7-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           command:
             - redis-server
             - --requirepass
@@ -83,6 +94,8 @@ spec:
           volumeMounts:
             - name: redis-data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
           # Loading a large AOF on boot can take a while; don't let liveness
           # restart Redis while it is replaying.
           startupProbe:
@@ -107,3 +120,5 @@ spec:
         - name: redis-data
           persistentVolumeClaim:
             claimName: redis-data
+        - name: tmp
+          emptyDir: {}

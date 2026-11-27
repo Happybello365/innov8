@@ -38,7 +38,17 @@ export function useCurrencyInput({
   const [stroops, setStroops] = useState<string | null>(null);
 
   const handleChange = useCallback(
-    (newValue: string) => {
+    (rawValue: string) => {
+      // Normalize comma decimal separator to period so users on locales where
+      // the comma is the decimal separator get the same result as period users.
+      // Rule: a single comma with no period present is a decimal separator.
+      // Multiple commas, or a comma alongside a period, are treated as
+      // thousand-group separators and stripped by validateAmountFormat.
+      const newValue =
+        rawValue.includes(",") && !rawValue.includes(".")
+          ? rawValue.replace(",", ".")
+          : rawValue;
+
       setValue(newValue);
       setError(null);
       setStroops(null);

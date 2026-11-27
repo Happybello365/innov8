@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: amana-golden-signals
+  - name: innov8-golden-signals
     orgId: 1
-    folder: Amana
+    folder: innov8
     type: file
     disableDeletion: false
     updateIntervalSeconds: 30

@@ -72,9 +72,9 @@
           "description": "Body text, labels, descriptions"
         },
         "muted": {
-          "value": "#5A7A6A",
+          "value": "#8BA89A",
           "type": "color",
-          "description": "Placeholder text, disabled states"
+          "description": "Placeholder text, disabled states with readable contrast on dark surfaces"
         },
         "inverse": {
           "value": "#0B1A14",

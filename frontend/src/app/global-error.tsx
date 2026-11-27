@@ -122,7 +122,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
                 fontSize: "0.7rem",
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
-                color: "#5A7A6A",
+                color: "#8BA89A",
               }}
             >
               Error reference

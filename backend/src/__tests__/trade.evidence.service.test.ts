@@ -12,7 +12,8 @@ describe("TradeEvidenceListService", () => {
     deliveryManifest: { findUnique: jest.fn() },
   };
   const ipfs = { getSignedFileUrl: jest.fn() };
-  const service = new TradeEvidenceListService(prisma as any, ipfs as any);
+  const limits = { getMaxEvidencePerParty: jest.fn().mockResolvedValue({ value: 10, source: "chain" }) };
+  const service = new TradeEvidenceListService(prisma as any, ipfs as any, limits);
 
   beforeEach(() => {
     jest.clearAllMocks();

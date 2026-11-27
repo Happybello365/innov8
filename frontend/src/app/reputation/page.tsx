@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { api, ApiError, type ReputationResponse } from "@/lib/api";
 import { RepScoreRing } from "@/components/ui/RepScoreRing";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
-import { AlertCircle, RefreshCw, TrendingUp, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
+import { AlertCircle, RefreshCw, TrendingUp, CheckCircle2, AlertTriangle, Clock, Star } from "lucide-react";
 
 function SkeletonReputationPage() {
   return (
@@ -86,6 +87,64 @@ function getEventIcon(type: string) {
     default:
       return <TrendingUp className="w-4 h-4 text-text-secondary" />;
   }
+}
+
+/**
+ * Shown when a user account exists (data is non-null) but has zero trades and
+ * no history yet — i.e. they've never completed a trade that contributes to
+ * reputation. Explains how reputation is earned and sends them to the trade
+ * wizard so they can start building it.
+ */
+function ReputationEmptyState() {
+  const router = useRouter();
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center min-h-[60vh] p-6 text-center space-y-6"
+      data-testid="reputation-empty-state"
+    >
+      <div className="w-20 h-20 rounded-full bg-bg-elevated border border-border-default flex items-center justify-center">
+        <Star className="w-10 h-10 text-gold" />
+      </div>
+
+      <div className="space-y-2 max-w-md">
+        <h1 className="text-2xl font-bold text-text-primary">
+          Build Your Reputation
+        </h1>
+        <p className="text-text-secondary">
+          You haven&apos;t completed any trades yet. Your trust score and
+          reputation history are earned through successful trades on the
+          innov8 platform.
+        </p>
+      </div>
+
+      <div className="bg-bg-elevated border border-border-default rounded-xl p-5 max-w-sm w-full text-left space-y-3">
+        <p className="text-sm font-semibold text-text-primary">
+          How reputation is earned
+        </p>
+        <ul className="space-y-2">
+          {[
+            { icon: <CheckCircle2 className="w-4 h-4 text-status-success" />, text: "Complete a trade successfully" },
+            { icon: <TrendingUp className="w-4 h-4 text-gold" />, text: "Maintain a high success rate" },
+            { icon: <AlertTriangle className="w-4 h-4 text-status-warning" />, text: "Resolve disputes fairly" },
+          ].map((item) => (
+            <li key={item.text} className="flex items-center gap-2 text-sm text-text-secondary">
+              {item.icon}
+              <span>{item.text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <Button
+        variant="primary"
+        onClick={() => router.push("/trade/new")}
+        data-testid="start-trading-cta"
+      >
+        Start Your First Trade
+      </Button>
+    </div>
+  );
 }
 
 export default function ReputationPage() {
@@ -169,6 +228,12 @@ export default function ReputationPage() {
         </p>
       </div>
     );
+  }
+
+  // User has an account and data, but hasn't made any trades yet — show the
+  // empty state with an explanation and a CTA to the trade wizard.
+  if (data.totalTrades === 0 && data.history.length === 0) {
+    return <ReputationEmptyState />;
   }
 
   const ringScore = (data.trustScore / 100) * 5;

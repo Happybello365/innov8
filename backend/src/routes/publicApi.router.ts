@@ -30,6 +30,7 @@ import { createContractStateRouter } from "./contract.state.routes";
 import { createTreasuryRouter } from "./treasury.routes";
 import { webhooksRoutes } from "./webhooks.routes";
 import { createPrivacyRouter } from "./privacy.routes";
+import { createFeaturesRouter } from "./features.routes";
 
 /**
  * Aggregates every consumer-facing API route into a single router mounted at
@@ -61,6 +62,7 @@ export function createPublicApiRouter(): Router {
   router.use("/wallet", walletRoutes);
   router.use("/users", userRoutes);
   router.use(createPrivacyRouter());
+  router.use(createFeaturesRouter());
   router.use("/users", reputationRoutes);
   router.use(createNotificationPreferencesRouter());
   router.use(createNotificationsRouter());

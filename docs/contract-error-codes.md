@@ -53,6 +53,43 @@ The corresponding `ErrorCode` enum values (in `backend/src/errors/errorCodes.ts`
 
 ---
 
+## Evidence limit (Issues #8, #272)
+
+`submit_evidence` panics with `Evidence limit per party exceeded` when the
+caller has already submitted `MAX_EVIDENCE_PER_PARTY` (10) records for the
+trade. The cap is per submitter (buyer, seller and each mediator count
+separately) and per trade.
+
+Clients must not hardcode the cap. Read it with the auth-free getter
+`get_max_evidence_per_party()`; the backend does this in
+`ContractService.getMaxEvidencePerParty()` and returns it as
+`limits.maxEvidencePerParty` on `GET /trades/:id/evidence`.
+`contracts/amana_escrow/src/tests/evidence_cap_tests.rs` drives the boundary
+tests from the getter's value, so the getter and the enforced cap cannot drift.
+
+## Timelock Error Codes (Issue #189)
+
+Emitted by the timelock queue/execute flow (`pub mod timelock_errors`).
+
+| Error Code                | Description                                                    |
+|---------------------------|----------------------------------------------------------------|
+| `TIMELOCK_UNAUTHORIZED`   | Caller is not authorised to queue, execute or cancel the operation. |
+| `TIMELOCK_NOT_READY`      | The operation's `execute_after` time has not been reached.     |
+| `TIMELOCK_OP_NOT_FOUND`   | No queued operation exists for the given operation ID.         |
+| `TIMELOCK_INVALID_OP`     | The queued operation payload is not valid for this action.     |
+
+---
+
+## Fee Withdrawal Error Codes (Issue #5)
+
+Emitted by `withdraw_fees` (`pub mod fee_errors`).
+
+| Error Code                      | Description                                                              |
+|---------------------------------|--------------------------------------------------------------------------|
+| `FEES_DESTINATION_IS_CONTRACT`  | Withdrawal destination is the escrow contract itself.                    |
+
+---
+
 ## Source of Truth
 
 | Artifact                                                   | Purpose                                 |
@@ -61,6 +98,7 @@ The corresponding `ErrorCode` enum values (in `backend/src/errors/errorCodes.ts`
 | `backend/src/errors/errorCodes.ts` → `enum ErrorCode`     | Backend enum values                     |
 | `backend/src/services/contractClawbackError.service.ts`   | Mapping logic + user-facing messages    |
 | `contracts/amana_escrow/tests/clawback_error_tests.rs`    | On-chain test assertions                |
+| `contracts/amana_escrow/tests/error_docs_sync_tests.rs`   | Fails `cargo test` if this table drifts from `lib.rs` |
 
 These sources **must remain in sync**. If a new error code is added on-chain,
 add the `ErrorCode` entry and a mapping case in the service.

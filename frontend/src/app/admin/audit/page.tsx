@@ -37,6 +37,9 @@ function formatAction(action: string): string {
     .join(" ");
 }
 
+function parseSafePage(raw: string | null): number {
+  const n = parseInt(raw ?? "1", 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
 export interface AdminAuditFilters {
   actor: string;
   action: string;
@@ -86,7 +89,7 @@ export default function AdminAuditHistoryPage() {
   const filters = parseAuditFilters(searchParams);
 
   const [entries, setEntries] = useState<AdminAuditEntry[]>([]);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => parseSafePage(searchParams.get("page")));
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +128,17 @@ export default function AdminAuditHistoryPage() {
   useEffect(() => {
     trackAdminEvent("admin_audit_page_view", "viewed");
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (page === 1) {
+      params.delete("page");
+    } else {
+      params.set("page", String(page));
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname ?? "/admin/audit", { scroll: false });
+  }, [page, pathname, router, searchParams]);
 
   useEffect(() => {
     fetchAuditHistory();

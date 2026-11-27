@@ -380,6 +380,71 @@ describe("useCurrencyInput", () => {
       expect(result.current.isValid).toBe(true);
       expect(result.current.stroops).toBe("10000005000000");
     });
+  });
+
+  describe("Comma decimal separator (issue #214)", () => {
+    it("accepts comma as decimal separator (100,50 → 100.50)", () => {
+      const { result } = renderHook(() =>
+        useCurrencyInput({ asset: STELLAR_ASSETS.XLM })
+      );
+
+      act(() => {
+        result.current.setValue("100,50");
+      });
+
+      expect(result.current.isValid).toBe(true);
+      expect(result.current.stroops).toBe("1005000000");
+    });
+
+    it("normalizes comma decimal to period in displayed value", () => {
+      const { result } = renderHook(() =>
+        useCurrencyInput({ asset: STELLAR_ASSETS.USDC })
+      );
+
+      act(() => {
+        result.current.setValue("250,75");
+      });
+
+      expect(result.current.value).toBe("250.75");
+    });
+
+    it("treats comma as thousand separator when period is also present", () => {
+      const { result } = renderHook(() =>
+        useCurrencyInput({ asset: STELLAR_ASSETS.XLM })
+      );
+
+      act(() => {
+        result.current.setValue("1,000.50");
+      });
+
+      expect(result.current.isValid).toBe(true);
+      expect(result.current.stroops).toBe("10005000000");
+    });
+
+    it("accepts whole number with comma decimal intent (no period)", () => {
+      const { result } = renderHook(() =>
+        useCurrencyInput({ asset: STELLAR_ASSETS.EURC })
+      );
+
+      act(() => {
+        result.current.setValue("500");
+      });
+
+      expect(result.current.isValid).toBe(true);
+    });
+
+    it("calls onValidChange with correct stroops for comma-decimal input", () => {
+      const onValidChange = jest.fn();
+      const { result } = renderHook(() =>
+        useCurrencyInput({ asset: STELLAR_ASSETS.USDC, onValidChange })
+      );
+
+      act(() => {
+        result.current.setValue("10,5");
+      });
+
+      expect(onValidChange).toHaveBeenCalledWith("1050000000");
+    });
 
     it("handles very small amounts", () => {
       const { result } = renderHook(() =>

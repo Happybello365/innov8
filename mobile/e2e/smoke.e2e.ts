@@ -89,7 +89,7 @@ describe('WalletConnect screen', () => {
       },
     });
 
-    await waitFor(element(by.text('Connect Wallet')))
+    await waitFor(element(by.id('connect-wallet-btn')))
       .toBeVisible()
       .withTimeout(TIMEOUT);
 
@@ -138,8 +138,8 @@ describe('Trade detail', () => {
       .toBeVisible()
       .withTimeout(TIMEOUT);
 
-    // Tap the first trade card in the list.
-    await element(by.text('#TRD-E2E')).tap();
+    // Tap the first trade card using its stable testID prefix.
+    await element(by.id('trade-card-TRD-E2E')).tap();
 
     // TradeDetail header must be visible.
     await waitFor(element(by.text('Trade Detail')))
@@ -152,7 +152,7 @@ describe('Trade detail', () => {
       .toBeVisible()
       .withTimeout(TIMEOUT);
 
-    await element(by.text('#TRD-E2E')).tap();
+    await element(by.id('trade-card-TRD-E2E')).tap();
 
     await waitFor(element(by.text('Trade Detail')))
       .toBeVisible()
@@ -169,13 +169,14 @@ describe('Trade detail', () => {
       .toBeVisible()
       .withTimeout(TIMEOUT);
 
-    await element(by.text('#TRD-E2E')).tap();
+    await element(by.id('trade-card-TRD-E2E')).tap();
 
     await waitFor(element(by.text('Trade Detail')))
       .toBeVisible()
       .withTimeout(TIMEOUT);
 
-    await element(by.text('← Back')).tap();
+    // Use stable testID instead of text matching for the back button.
+    await element(by.id('back-btn')).tap();
 
     await waitFor(element(by.text('🌾 Trades')))
       .toBeVisible()

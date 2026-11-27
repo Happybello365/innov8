@@ -1,6 +1,8 @@
 import { Router, Request, Response } from "express";
 import { appLogger } from "../middleware/logger";
 import { verifyWebhookSignature } from "../middleware/webhookSignature.middleware";
+import { ErrorCode } from "../errors/errorCodes";
+import { isRecognizedWebhookEvent } from "../services/webhook.service";
 
 /**
  * Inbound provider callbacks.
@@ -22,6 +24,7 @@ router.use("/:provider", verifyWebhookSignature());
 type InboundWebhookHandler = (payload: unknown, req: Request) => Promise<void>;
 
 const handlers = new Map<string, InboundWebhookHandler>();
+const providerEvents = new Map<string, Set<string>>();
 
 /**
  * Registers the handler for a provider's verified callbacks.
@@ -30,17 +33,27 @@ const handlers = new Map<string, InboundWebhookHandler>();
  * `:provider` path segment and the secret registry.
  * @param handler - Invoked only after the signature and timestamp have been
  * verified. Throwing yields a 500; the provider will retry.
+ * @param supportedEvents - Optional custom supported event types for this provider.
  */
 export function registerInboundWebhookHandler(
   provider: string,
   handler: InboundWebhookHandler,
+  supportedEvents?: string[],
 ): void {
-  handlers.set(provider.toLowerCase(), handler);
+  const normalizedProvider = provider.toLowerCase();
+  handlers.set(normalizedProvider, handler);
+  if (supportedEvents && supportedEvents.length > 0) {
+    providerEvents.set(
+      normalizedProvider,
+      new Set(supportedEvents.map((e) => e.toLowerCase())),
+    );
+  }
 }
 
 /** Test hook: clears the handler registry between cases. */
 export function __resetInboundWebhookHandlers(): void {
   handlers.clear();
+  providerEvents.clear();
 }
 
 // POST /webhooks/inbound/:provider - accept a signed provider callback
@@ -59,6 +72,37 @@ router.post("/:provider", async (req: Request, res: Response) => {
         "Verified inbound webhook has no registered handler",
       );
       return res.status(202).json({ status: "accepted", provider, handled: false });
+    }
+
+    const payload = req.body as Record<string, unknown> | undefined;
+    const rawEventType =
+      payload && typeof payload === "object"
+        ? (payload.event ?? payload.type ?? payload.eventType)
+        : undefined;
+    const eventType = typeof rawEventType === "string" ? rawEventType.trim() : undefined;
+
+    const customSupported = providerEvents.get(provider);
+    const isSupportedByProvider =
+      customSupported && eventType
+        ? customSupported.has(eventType.toLowerCase())
+        : false;
+
+    if (!eventType || (!isRecognizedWebhookEvent(eventType) && !isSupportedByProvider)) {
+      appLogger.warn(
+        { provider, eventType: eventType ?? null, path: req.originalUrl },
+        `Unknown webhook event type '${eventType ?? "unknown"}' from provider '${provider}'`,
+      );
+      return res.status(404).json({
+        code: ErrorCode.NOT_FOUND,
+        error: "Unknown webhook event type",
+        message: `Event type '${eventType ?? "unknown"}' is not recognized`,
+        details: {
+          provider,
+          eventType: eventType ?? null,
+        },
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl,
+      });
     }
 
     await handler(req.body, req);

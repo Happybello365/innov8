@@ -39,3 +39,26 @@ export const notificationsApi = {
     await apiClient.post('/notifications/read-all');
   },
 };
+
+/**
+ * Quiet hours (issue #260; backend #27). Times are `HH:MM` wall-clock in
+ * `timezone` (IANA); the window may wrap midnight (e.g. 22:00 → 07:00).
+ */
+export interface QuietHours {
+  enabled: boolean;
+  start: string;
+  end: string;
+  timezone: string;
+}
+
+export const quietHoursApi = {
+  async getQuietHours(): Promise<QuietHours | null> {
+    const response = await apiClient.get('/notifications/quiet-hours');
+    return response.data?.quietHours ?? null;
+  },
+
+  async updateQuietHours(quietHours: QuietHours): Promise<QuietHours> {
+    const response = await apiClient.put('/notifications/quiet-hours', quietHours);
+    return response.data.quietHours;
+  },
+};

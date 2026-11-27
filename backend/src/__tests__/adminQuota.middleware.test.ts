@@ -49,6 +49,29 @@ describe("adminQuota middleware", () => {
     expect(res.body.message).toMatch(/quota exceeded/i);
     expect(res.body.details).toMatchObject({ operation: "test.op", limit: 2 });
     expect(res.headers["retry-after"]).toBeDefined();
+    expect(res.headers["retry-after"]).toBe(String(res.body.details.retryAfterSeconds));
+    expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
+    expect(Number(res.headers["retry-after"])).toBeLessThanOrEqual(60);
+  });
+
+  it("sets Retry-After header correctly reflecting remaining window time in seconds", async () => {
+    jest.useFakeTimers({ doNotFake: ["nextTick"] });
+    const app = buildApp(1, 60_000);
+
+    // Initial request starts the 60s window
+    const first = await request(app).post("/op");
+    expect(first.status).toBe(200);
+
+    // Advance time by 25 seconds
+    jest.advanceTimersByTime(25_000);
+
+    // Second request is rate limited with 35s remaining
+    const rateLimited = await request(app).post("/op");
+    expect(rateLimited.status).toBe(429);
+    expect(rateLimited.headers["retry-after"]).toBe("35");
+    expect(rateLimited.body.details.retryAfterSeconds).toBe(35);
+
+    jest.useRealTimers();
   });
 
   it("tracks quota separately per admin identity", async () => {

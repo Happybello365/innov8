@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useId, useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ConfirmActionModal } from "@/components/ui/ConfirmActionModal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
 import { webhooksApi, AVAILABLE_EVENTS, Webhook } from "@/lib/api/webhooks";
+import { request } from "@/lib/api/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,9 @@ interface NotificationPrefs {
   disputeAlerts: boolean;
   vaultActivity: boolean;
   systemAnnouncements: boolean;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string; // "HH:MM" 24-h format
+  quietHoursEnd: string;   // "HH:MM" 24-h format
 }
 
 interface AppPrefs {
@@ -108,15 +112,19 @@ function SelectField({
   options: { value: string; label: string }[];
   error?: string;
 }) {
+  const inputId = useId();
+  const descriptionId = description ? `${inputId}-description` : undefined;
+  const errorId = error ? `${inputId}-error` : undefined;
+
   return (
     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
       <div className="flex-1">
-        <p className="text-sm font-medium text-text-primary">{label}</p>
+        <label htmlFor={inputId} className="text-sm font-medium text-text-primary">{label}</label>
         {description && (
-          <p className="text-xs text-text-secondary mt-0.5">{description}</p>
+          <p id={descriptionId} className="text-xs text-text-secondary mt-0.5">{description}</p>
         )}
         {error && (
-          <p className="text-xs text-status-danger mt-1 flex items-center gap-1">
+          <p id={errorId} className="text-xs text-status-danger mt-1 flex items-center gap-1">
             <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 10a1 1 0 110 2 1 1 0 010-2zm0-7a1 1 0 011 1v4a1 1 0 11-2 0V5a1 1 0 011-1z" />
             </svg>
@@ -125,10 +133,11 @@ function SelectField({
         )}
       </div>
       <select
+        id={inputId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={!!error}
-        aria-describedby={error ? `${label}-error` : undefined}
+        aria-describedby={[descriptionId, errorId].filter(Boolean).join(" ") || undefined}
         className={`rounded-lg border ${error ? "border-status-danger" : "border-border-default"} bg-bg-input text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-border-focus transition-colors sm:w-44`}
       >
         {options.map((opt) => (
@@ -137,6 +146,182 @@ function SelectField({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+// ─── Quiet Hours Control ──────────────────────────────────────────────────────
+
+/**
+ * Time-range picker for quiet hours. Displays the user's local IANA timezone
+ * so there is no ambiguity about which clock the saved times refer to.
+ *
+ * The component is intentionally self-contained: it manages its own saving
+ * state and calls the /notifications/preferences PUT endpoint directly via
+ * the shared `request` helper so callers just pass the current values and an
+ * onChange handler.
+ */
+function QuietHoursControl({
+  enabled,
+  start,
+  end,
+  token,
+  onEnabledChange,
+  onStartChange,
+  onEndChange,
+}: {
+  enabled: boolean;
+  start: string;
+  end: string;
+  token: string | null;
+  onEnabledChange: (v: boolean) => void;
+  onStartChange: (v: string) => void;
+  onEndChange: (v: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Derive the IANA timezone label once on mount — it will be stable for the
+  // lifetime of the component so no effect/dependency is needed.
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  async function handleSave() {
+    if (!token) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await request("/notifications/preferences", {
+        method: "PUT",
+        token,
+        body: JSON.stringify({
+          "quiet-hours": {
+            enabled,
+            start,
+            end,
+            timezone,
+          },
+        }),
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save quiet hours",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4" data-testid="quiet-hours-control">
+      <Toggle
+        label="Enable quiet hours"
+        description="Pause non-critical notifications during a time window."
+        checked={enabled}
+        onChange={onEnabledChange}
+      />
+
+      {enabled && (
+        <>
+          <Divider />
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium text-text-primary">From</p>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  Start of quiet period
+                </p>
+              </div>
+              <input
+                type="time"
+                value={start}
+                onChange={(e) => onStartChange(e.target.value)}
+                aria-label="Quiet hours start time"
+                className="rounded-lg border border-border-default bg-bg-input text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-border-focus transition-colors sm:w-44"
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium text-text-primary">To</p>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  End of quiet period
+                </p>
+              </div>
+              <input
+                type="time"
+                value={end}
+                onChange={(e) => onEndChange(e.target.value)}
+                aria-label="Quiet hours end time"
+                className="rounded-lg border border-border-default bg-bg-input text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-border-focus transition-colors sm:w-44"
+              />
+            </div>
+
+            {/* Timezone indicator */}
+            <div
+              className="flex items-center gap-2 rounded-lg bg-bg-elevated border border-border-default px-3 py-2"
+              data-testid="quiet-hours-timezone"
+            >
+              <svg
+                className="w-4 h-4 shrink-0 text-text-muted"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+              >
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 5v3l2 2" />
+              </svg>
+              <p className="text-xs text-text-secondary">
+                Times are in your local timezone:{" "}
+                <span
+                  className="font-semibold text-text-primary"
+                  data-testid="quiet-hours-timezone-label"
+                >
+                  {timezone}
+                </span>
+              </p>
+            </div>
+
+            {saveError && (
+              <p className="text-xs text-status-danger flex items-center gap-1">
+                <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 10a1 1 0 110 2 1 1 0 010-2zm0-7a1 1 0 011 1v4a1 1 0 11-2 0V5a1 1 0 011-1z" />
+                </svg>
+                {saveError}
+              </p>
+            )}
+
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                aria-label="Save quiet hours"
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-text-inverse hover:bg-gold-hover transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {saving ? "Saving…" : "Save quiet hours"}
+              </button>
+              {saveSuccess && (
+                <span className="text-sm text-emerald flex items-center gap-1.5">
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path d="M2 8l4 4 8-8" />
+                  </svg>
+                  Saved
+                </span>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -602,6 +787,9 @@ export default function SettingsPage() {
     disputeAlerts: true,
     vaultActivity: false,
     systemAnnouncements: true,
+    quietHoursEnabled: false,
+    quietHoursStart: "22:00",
+    quietHoursEnd: "07:00",
   });
 
   const [prefs, setPrefs] = useState<AppPrefs>({
@@ -837,6 +1025,16 @@ export default function SettingsPage() {
               description="Platform updates and maintenance notices."
               checked={notifications.systemAnnouncements}
               onChange={(v) => setNotif("systemAnnouncements", v)}
+            />
+            <Divider />
+            <QuietHoursControl
+              enabled={notifications.quietHoursEnabled}
+              start={notifications.quietHoursStart}
+              end={notifications.quietHoursEnd}
+              token={token}
+              onEnabledChange={(v) => setNotif("quietHoursEnabled", v)}
+              onStartChange={(v) => setNotif("quietHoursStart", v)}
+              onEndChange={(v) => setNotif("quietHoursEnd", v)}
             />
           </div>
         </SectionCard>

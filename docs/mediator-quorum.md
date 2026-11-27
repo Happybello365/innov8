@@ -143,6 +143,11 @@ cannot be confused or used to bypass one another.
 mediator. The parties are the ones whose funds are stuck; they must not have to
 wait for a mediator to choose to act.
 
+Full parameter, authorization and panic reference for `resolve_dispute`,
+`cast_dispute_vote` and `resolve_dispute_by_fallback` is in their rustdoc:
+`cd contracts/amana_escrow && cargo doc --no-deps --open` →
+`EscrowContract` (#271).
+
 ## Audit trail
 
 Every vote emits `DisputeVoteCastEvent` (topic `DVOTE`) carrying the voter, the

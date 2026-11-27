@@ -92,7 +92,7 @@ export function ContractManifestCard({
       <div className="flex gap-3 mt-15">
         <button
           onClick={onExportPdf}
-          className="flex-1 flex items-center justify-center gap-2 bg-[#1E2D2666] hover:bg-bg-input text-text-primary font-medium py-2.5 px-4 rounded-xl transition-colors "
+          className="flex-1 flex items-center justify-center gap-2 bg-surface-2 hover:bg-bg-input text-text-primary font-medium py-2.5 px-4 rounded-xl transition-colors "
         >
            <Image
               src={Download}
@@ -104,7 +104,7 @@ export function ContractManifestCard({
         </button>
         <button
           onClick={onViewClauses}
-          className="flex-1 flex items-center justify-center gap-2 bg-[#1E2D2666] hover:bg-bg-input text-text-primary font-medium py-2.5 px-4 rounded-xl transition-colors"
+          className="flex-1 flex items-center justify-center gap-2 bg-surface-2 hover:bg-bg-input text-text-primary font-medium py-2.5 px-4 rounded-xl transition-colors"
         >
           <Eye className="w-4 h-4" />
           View Clauses

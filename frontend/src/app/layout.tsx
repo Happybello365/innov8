@@ -1,5 +1,6 @@
 // src/app/layout.tsx
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Manrope } from "next/font/google";
 
 import "./globals.css";
@@ -11,6 +12,7 @@ import { ToastContainer } from "@/components/ui/ToastContainer";
 import { ToastProvider } from "@/hooks/useToast";
 import { ThemeProvider } from "@/hooks/useTheme";
 import RegisterSW from "@/components/RegisterSW";
+import { readCspNonce } from "@/lib/csp/nonce";
 import { FeatureFlagsProvider } from "@/components/FeatureFlagsProvider";
 import { FlagDebugPanel } from "@/components/admin/FlagDebugPanel";
 
@@ -54,31 +56,28 @@ export const metadata: Metadata = {
  */
 const themeScript = `
 (function(){
+  var dark = false;
   try {
     var stored = localStorage.getItem('amana-theme-preference');
-    var pref = stored || 'system';
-    var dark;
-    if (pref === 'system') {
-      dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    } else {
-      dark = pref === 'dark';
-    }
-    document.documentElement.classList.add(dark ? 'dark' : 'light');
+    dark = stored === 'dark' || (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   } catch(e) {
-    document.documentElement.classList.add('dark');
+    dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
+  document.documentElement.classList.add(dark ? 'dark' : 'light');
 })();
 `;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Per-request nonce from middleware; required for the inline theme script under enforced CSP.
+  const nonce = readCspNonce(await headers());
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${manrope.variable} font-sans bg-primary text-text-primary antialiased`}

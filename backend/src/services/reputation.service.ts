@@ -18,6 +18,20 @@ export interface ReputationResponse {
   history: ReputationEvent[];
 }
 
+export interface ReputationScoreHistoryItem {
+  id: number;
+  trustScore: number;
+  totalTrades: number;
+  successRate: number;
+  createdAt: string;
+}
+
+export interface ReputationHistoryPage {
+  data: ReputationScoreHistoryItem[];
+  /** Cursor for the next page; `null` when there are no more results. */
+  nextCursor: number | null;
+}
+
 export class ReputationService {
   constructor(private prisma: PrismaClient) {}
 
@@ -94,6 +108,16 @@ export class ReputationService {
 
     history.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
+    // Store a snapshot of this recomputed score
+    await (this.prisma as any).reputationScoreSnapshot.create({
+      data: {
+        walletAddress: normalized,
+        trustScore,
+        totalTrades,
+        successRate,
+      },
+    });
+
     return {
       trustScore,
       totalTrades,
@@ -101,6 +125,57 @@ export class ReputationService {
       disputedTrades: disputedCount,
       successRate,
       history: history.slice(0, 20),
+    };
+  }
+
+  /**
+   * Retrieve paginated score-history snapshots for a wallet address.
+   *
+   * @param walletAddress - The wallet to query.
+   * @param from          - Optional ISO date string; only return snapshots on or after this date.
+   * @param to            - Optional ISO date string; only return snapshots on or before this date.
+   * @param cursor        - Cursor (snapshot id) for keyset pagination; omit for first page.
+   * @param limit         - Page size (default 20, max 100).
+   */
+  async getReputationHistory(
+    walletAddress: string,
+    from?: string,
+    to?: string,
+    cursor?: number,
+    limit = 20,
+  ): Promise<ReputationHistoryPage> {
+    const normalized = walletAddress.toLowerCase();
+    const pageSize = Math.min(Math.max(1, limit), 100);
+
+    const rows = await (this.prisma as any).reputationScoreSnapshot.findMany({
+      where: {
+        walletAddress: normalized,
+        ...(from || to
+          ? {
+              createdAt: {
+                ...(from ? { gte: new Date(from) } : {}),
+                ...(to ? { lte: new Date(to) } : {}),
+              },
+            }
+          : {}),
+        ...(cursor ? { id: { lt: cursor } } : {}),
+      },
+      orderBy: { id: "desc" },
+      take: pageSize + 1, // fetch one extra to detect next page
+    });
+
+    const hasMore = rows.length > pageSize;
+    const page = hasMore ? rows.slice(0, pageSize) : rows;
+
+    return {
+      data: page.map((r: any) => ({
+        id: r.id,
+        trustScore: r.trustScore,
+        totalTrades: r.totalTrades,
+        successRate: r.successRate,
+        createdAt: r.createdAt.toISOString(),
+      })),
+      nextCursor: hasMore ? page[page.length - 1].id : null,
     };
   }
 }

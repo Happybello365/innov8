@@ -23,6 +23,7 @@ soroban-sdk = { version = "25.3.0", features = ["testutils"] }
 soroban-sdk = { version = "25.3.0", features = ["testutils"] }
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
+proptest = "1"
 rand = { version = "0.8", features = ["std", "std_rng"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -112,3 +113,23 @@ path = "tests/admin_signer_fixture_tests.rs"
 [[test]]
 name = "parity_money_math"
 path = "tests/parity_money_math.rs"
+
+# Issue #273 — error code docs/contract drift check
+[[test]]
+name = "error_docs_sync_tests"
+path = "tests/error_docs_sync_tests.rs"
+
+# Issue #274 — list_mediators() view
+[[test]]
+name = "list_mediators_tests"
+path = "tests/list_mediators_tests.rs"
+
+# Issue #275 — pause metadata
+[[test]]
+name = "pause_metadata_tests"
+path = "tests/pause_metadata_tests.rs"
+
+# Issue #276 — property-based trade state machine tests
+[[test]]
+name = "trade_state_machine_proptest"
+path = "tests/trade_state_machine_proptest.rs"

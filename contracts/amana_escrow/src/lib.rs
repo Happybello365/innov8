@@ -125,6 +125,9 @@ pub const DEFAULT_QUORUM_VOTE_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
 /// permitted once the window closes.
 pub const DEFAULT_QUORUM_FALLBACK_MIN_WEIGHT: u32 = 2;
 
+/// Reason recorded when `pause()` is called without one (#275).
+pub const DEFAULT_PAUSE_REASON: &str = "unspecified";
+
 /// Weight assigned to a mediator with no explicit weight configured.
 pub const DEFAULT_MEDIATOR_WEIGHT: u32 = 1;
 
@@ -136,6 +139,13 @@ pub const MAX_MEDIATOR_WEIGHT: u32 = 10;
 pub const MIN_FEE_BPS: u32 = 1;
 /// Maximum allowed platform fee in basis points (5%).
 pub const MAX_FEE_BPS: u32 = 500;
+
+/// Maximum evidence records each submitter may add to a single trade (#8, #272).
+///
+/// Buyer, seller and each mediator get this many slots independently, which
+/// bounds the per-trade evidence list and its storage rent. Read it on-chain
+/// via [`EscrowContract::get_max_evidence_per_party`] instead of hardcoding it.
+pub const MAX_EVIDENCE_PER_PARTY: u32 = 10;
 
 fn checked_fee_amount(amount: i128, fee_bps: u32) -> i128 {
     amount
@@ -705,6 +715,22 @@ pub struct QuorumConfig {
     pub fallback_min_weight: u32,
 }
 
+/// A registered mediator and the vote weight it currently carries (#274).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MediatorInfo {
+    pub address: Address,
+    pub weight: u32,
+}
+
+/// Why and when the contract was last paused (#275).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PauseMetadata {
+    pub reason: soroban_sdk::String,
+    pub paused_at: u64,
+}
+
 /// A single mediator's weighted vote on a disputed trade (#195).
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -728,6 +754,29 @@ pub struct QuorumState {
     pub votes: Vec<MediatorVote>,
     /// Timestamp of the first vote — the fallback window is measured from here.
     pub opened_at: u64,
+}
+
+/// Aggregated view of a disputed trade's votes (#279).
+///
+/// Lets a client that polls for quorum progress read the tally in one small
+/// response instead of fetching every `MediatorVote` and summing off-chain.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisputeSummary {
+    /// Number of votes cast so far.
+    pub vote_count: u32,
+    /// Combined weight of every vote cast, across all outcomes.
+    pub total_weight: u32,
+    /// The outcome carrying the most weight (ties break to the lowest
+    /// `seller_gets_bps`). Zero when no votes have been cast.
+    pub leading_seller_gets_bps: u32,
+    /// Weight backing `leading_seller_gets_bps`.
+    pub leading_weight: u32,
+    /// Weight a single outcome needs to settle, from the active quorum config.
+    pub required_weight: u32,
+    /// True when the trade requires quorum and one outcome has reached
+    /// `required_weight`.
+    pub quorum_reached: bool,
 }
 
 /// How a quorum dispute was ultimately decided (#195).
@@ -873,6 +922,8 @@ pub enum DataKey {
     AllowedAsset(Address),
     /// Per-asset decimal precision (u32), stored alongside AllowedAsset.
     AssetDecimals(Address),
+    /// Per-asset pause flag — when true, trading in this specific asset is blocked (#290).
+    AssetPaused(Address),
     /// Admin-configured `ExtensionPolicy`. Absent until an admin sets one, in
     /// which case the DEFAULT_MAX_* constants apply (#194).
     ExtensionPolicy,
@@ -900,6 +951,23 @@ pub enum DataKey {
     /// `accept_admin()`. Absent means no transfer is in progress.
     /// Stored in instance storage alongside `Admin` (#1).
     PendingAdmin,
+    /// Deployment-time enablement switch for staged releases (#289).
+    StagedReleaseEnabled,
+    /// Ordered release tranches for a staged trade (#289).
+    TradeTranches(u64),
+    /// Ordered list of every address currently in the mediator registry, kept
+    /// in step with `MediatorRegistry(Address)` so `list_mediators()` can
+    /// enumerate without replaying events (#274).
+    MediatorList,
+    /// Reason and timestamp recorded by the most recent `pause()` (#275).
+    PauseMetadata,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReleaseTranche {
+    pub amount: i128,
+    pub released: bool,
 }
 
 #[contracttype]
@@ -1013,6 +1081,32 @@ impl EscrowContract {
         }
     }
 
+    /// Appends `mediator` to the enumerable mediator list if absent (#274).
+    fn index_mediator(env: &Env, mediator: &Address) {
+        let mut list: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(env));
+        if list.first_index_of(mediator.clone()).is_none() {
+            list.push_back(mediator.clone());
+            env.storage().persistent().set(&DataKey::MediatorList, &list);
+        }
+    }
+
+    /// Drops `mediator` from the enumerable mediator list if present (#274).
+    fn unindex_mediator(env: &Env, mediator: &Address) {
+        let mut list: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(env));
+        if let Some(idx) = list.first_index_of(mediator.clone()) {
+            list.remove(idx);
+            env.storage().persistent().set(&DataKey::MediatorList, &list);
+        }
+    }
+
     /// Panics with "contract is paused" when the global pause flag is set.
     /// Call this at the top of every state-changing entrypoint.
     fn assert_not_paused(env: &Env) {
@@ -1022,6 +1116,16 @@ impl EscrowContract {
             .get(&DataKey::Paused)
             .unwrap_or(false);
         assert!(!paused, "contract is paused");
+    }
+
+    /// Panics with "asset is paused" when the per-asset pause flag is set for `asset` (#290).
+    fn assert_asset_not_paused(env: &Env, asset: &Address) {
+        let paused: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AssetPaused(asset.clone()))
+            .unwrap_or(false);
+        assert!(!paused, "asset is paused");
     }
 
     // -----------------------------------------------------------------------
@@ -1109,6 +1213,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::MediatorRegistry(mediator.clone()), &true);
+        Self::index_mediator(&env, &mediator);
         MediatorAddedEvent {
             mediator: mediator.clone(),
         }
@@ -1131,6 +1236,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::MediatorRegistry(mediator_address.clone()), &true);
+        Self::index_mediator(&env, &mediator_address);
         MediatorAddedEvent {
             mediator: mediator_address,
         }
@@ -1153,6 +1259,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .remove(&DataKey::MediatorRegistry(mediator_address.clone()));
+        Self::unindex_mediator(&env, &mediator_address);
 
         // Clear legacy slot if it points to the same address
         if let Some(legacy) = env
@@ -1168,6 +1275,24 @@ impl EscrowContract {
             mediator: mediator_address,
         }
         .publish(&env);
+    }
+
+    /// Returns every address currently in the mediator registry together with
+    /// its vote weight (unconfigured mediators carry [`DEFAULT_MEDIATOR_WEIGHT`]).
+    /// The set matches the addresses for which `is_mediator` returns `true`.
+    /// Read-only; callable by anyone.
+    pub fn list_mediators(env: Env) -> Vec<MediatorInfo> {
+        let addresses: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MediatorList)
+            .unwrap_or(Vec::new(&env));
+        let mut out: Vec<MediatorInfo> = Vec::new(&env);
+        for address in addresses.iter() {
+            let weight = Self::get_mediator_weight(env.clone(), address.clone());
+            out.push_back(MediatorInfo { address, weight });
+        }
+        out
     }
 
     /// Returns `true` if `address` is currently in the approved mediator registry.
@@ -1221,7 +1346,17 @@ impl EscrowContract {
     }
 
     /// Pauses all state-changing contract operations. Caller must be a guardian.
+    /// Records [`DEFAULT_PAUSE_REASON`] as the reason; use `pause_with_reason`
+    /// to supply one.
     pub fn pause(env: Env, guardian: Address) {
+        let reason = soroban_sdk::String::from_str(&env, DEFAULT_PAUSE_REASON);
+        Self::pause_with_reason(env, guardian, reason);
+    }
+
+    /// Pauses the contract and stores `reason` plus the current ledger
+    /// timestamp, readable through `get_pause_metadata()`. Caller must be a
+    /// guardian (#275).
+    pub fn pause_with_reason(env: Env, guardian: Address, reason: soroban_sdk::String) {
         guardian.require_auth();
         assert!(
             env.storage()
@@ -1231,6 +1366,13 @@ impl EscrowContract {
             "caller is not a guardian"
         );
         env.storage().instance().set(&DataKey::Paused, &true);
+        env.storage().instance().set(
+            &DataKey::PauseMetadata,
+            &PauseMetadata {
+                reason,
+                paused_at: env.ledger().timestamp(),
+            },
+        );
         Self::bump_instance_ttl(&env);
     }
 
@@ -1256,6 +1398,53 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+    }
+
+    /// Pauses trading for a specific asset (#290). Caller must be a guardian.
+    pub fn pause_asset(env: Env, guardian: Address, asset: Address) {
+        guardian.require_auth();
+        assert!(
+            env.storage()
+                .persistent()
+                .get::<_, bool>(&DataKey::GuardianRegistry(guardian))
+                .unwrap_or(false),
+            "caller is not a guardian"
+        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::AssetPaused(asset), &true);
+        Self::bump_instance_ttl(&env);
+    }
+
+    /// Unpauses trading for a specific asset (#290). Caller must be a guardian.
+    pub fn unpause_asset(env: Env, guardian: Address, asset: Address) {
+        guardian.require_auth();
+        assert!(
+            env.storage()
+                .persistent()
+                .get::<_, bool>(&DataKey::GuardianRegistry(guardian))
+                .unwrap_or(false),
+            "caller is not a guardian"
+        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::AssetPaused(asset), &false);
+        Self::bump_instance_ttl(&env);
+    }
+
+    /// Returns true when trading in the given asset is currently paused (#290).
+    pub fn is_asset_paused(env: Env, asset: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::AssetPaused(asset))
+            .unwrap_or(false)
+    }
+
+    /// Returns the reason and timestamp of the most recent pause, or `None` if
+    /// the contract has never been paused (#275). The record is retained after
+    /// `unpause()` as an audit trail; check `is_paused()` for current state.
+    pub fn get_pause_metadata(env: Env) -> Option<PauseMetadata> {
+        env.storage().instance().get(&DataKey::PauseMetadata)
     }
 
     // -----------------------------------------------------------------------
@@ -1312,6 +1501,97 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .get(&DataKey::AssetDecimals(asset))
+    }
+
+    /// Creates a trade with an explicit allowed asset (#290).
+    /// Checks both the global pause and the per-asset pause flag.
+    pub fn create_trade_with_asset(
+        env: Env,
+        buyer: Address,
+        seller: Address,
+        token: Address,
+        amount: i128,
+        buyer_loss_bps: u32,
+        seller_loss_bps: u32,
+        expires_at: Option<u64>,
+    ) -> u64 {
+        Self::assert_not_paused(&env);
+        Self::assert_asset_not_paused(&env, &token);
+        buyer.require_auth();
+        assert!(amount > 0, "amount must be greater than zero");
+        assert!(amount <= MAX_TRADE_VALUE, "TradeValueTooLarge");
+        assert!(
+            buyer != seller,
+            "buyer and seller must be different addresses"
+        );
+        assert!(
+            buyer_loss_bps <= 10_000,
+            "buyer_loss_bps must not exceed 10000"
+        );
+        assert!(
+            seller_loss_bps <= 10_000,
+            "seller_loss_bps must not exceed 10000"
+        );
+        assert!(
+            buyer_loss_bps + seller_loss_bps == 10_000,
+            "loss ratios must sum to 10000 (100%)"
+        );
+        let now = env.ledger().timestamp();
+        if let Some(deadline) = expires_at {
+            assert!(deadline > now, "expires_at must be in the future");
+        }
+        let next_id: u64 = env
+            .storage()
+            .instance()
+            .get(&NEXT_TRADE_ID)
+            .unwrap_or(1_u64);
+        let ledger_seq = env.ledger().sequence() as u64;
+        let trade_id = (ledger_seq << 32) | next_id;
+        env.storage().instance().set(&NEXT_TRADE_ID, &(next_id + 1));
+        let total_trades: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalTrades)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalTrades, &(total_trades + 1));
+        let trade = Trade {
+            trade_id,
+            buyer: buyer.clone(),
+            seller: seller.clone(),
+            token,
+            amount,
+            status: TradeStatus::Created,
+            created_at: now,
+            updated_at: now,
+            funded_at: None,
+            delivered_at: None,
+            buyer_loss_bps,
+            seller_loss_bps,
+            expires_at,
+        };
+        Self::save_trade(&env, &DataKey::Trade(trade_id), &trade);
+        env.storage().persistent().set(
+            &DataKey::ReleaseSequence(trade_id),
+            &Self::default_release_sequence(&trade),
+        );
+        Self::record_trade_event(
+            &env,
+            trade_id,
+            "created",
+            trade.buyer.clone(),
+            "trade created",
+        );
+        TradeCreatedEvent {
+            trade_id,
+            buyer,
+            seller,
+            amount,
+        }
+        .publish(&env);
+        Self::bump_instance_ttl(&env);
+        trade_id
     }
 
     /// Returns the persistent storage schema version of this contract instance.
@@ -1753,8 +2033,39 @@ impl EscrowContract {
             .unwrap_or(true)
     }
 
+    /// Deployment-time enablement switch for staged releases (#289).
+    /// Admin only.
+    pub fn set_staged_release_enabled(env: Env, enabled: bool) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::StagedReleaseEnabled, &enabled);
+        Self::bump_instance_ttl(&env);
+    }
+
+    /// Returns true when staged releases are enabled. Defaults to false.
+    pub fn is_staged_release_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::StagedReleaseEnabled)
+            .unwrap_or(false)
+    }
+
+    /// Returns the release tranches configured for a trade, if any.
+    pub fn get_trade_tranches(env: Env, trade_id: u64) -> Option<Vec<ReleaseTranche>> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TradeTranches(trade_id))
+    }
+
     /// Return the total amount claimed (released) from a given trade.
-    /// This calculates the amount based on trade status and clawback history.
+    /// This calculates the amount based on trade status, tranche releases, and clawback history.
     /// Returns 0 if the trade has not completed or no funds have been released.
     pub fn get_claimed_amount(env: Env, trade_id: u64) -> i128 {
         let key = DataKey::Trade(trade_id);
@@ -1762,14 +2073,29 @@ impl EscrowContract {
             return 0;
         }
         let trade: Trade = Self::load_trade(&env, &key);
-        
+
+        if let Some(tranches) = env
+            .storage()
+            .persistent()
+            .get::<_, Vec<ReleaseTranche>>(&DataKey::TradeTranches(trade_id))
+        {
+            let mut claimed: i128 = 0;
+            for t in tranches.iter() {
+                if t.released {
+                    claimed = claimed.saturating_add(t.amount);
+                }
+            }
+            let clawed_back = Self::get_clawback_total(env, trade_id);
+            return claimed.saturating_sub(clawed_back);
+        }
+
         match trade.status {
             TradeStatus::Completed => {
                 let original_amount = trade.amount;
                 let clawed_back = Self::get_clawback_total(env, trade_id);
                 original_amount.saturating_sub(clawed_back)
             }
-            _ => 0
+            _ => 0,
         }
     }
 
@@ -2045,6 +2371,7 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::CngnContract)
             .expect("Not initialized");
+        Self::assert_asset_not_paused(&env, &cngn_address);
         let trade = Trade {
             trade_id,
             buyer: buyer.clone(),
@@ -2083,10 +2410,112 @@ impl EscrowContract {
         trade_id
     }
 
+    /// Creates a trade with staged release tranches (#289).
+    /// Requires staged release feature flag to be enabled.
+    /// Tranches must sum exactly to `amount`.
+    pub fn create_staged_trade(
+        env: Env,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+        buyer_loss_bps: u32,
+        seller_loss_bps: u32,
+        expires_at: Option<u64>,
+        tranches: Vec<i128>,
+    ) -> u64 {
+        assert!(
+            Self::is_staged_release_enabled(env.clone()),
+            "staged release feature is disabled"
+        );
+        assert!(!tranches.is_empty(), "tranches must not be empty");
+        let mut sum: i128 = 0;
+        let mut release_tranches = Vec::new(&env);
+        for t_amt in tranches.iter() {
+            assert!(t_amt > 0, "tranche amount must be positive");
+            sum = sum.checked_add(t_amt).expect("tranche sum overflow");
+            release_tranches.push_back(ReleaseTranche {
+                amount: t_amt,
+                released: false,
+            });
+        }
+        assert!(
+            sum == amount,
+            "tranches must sum exactly to trade amount"
+        );
+
+        let trade_id = Self::create_trade(
+            env.clone(),
+            buyer,
+            seller,
+            amount,
+            buyer_loss_bps,
+            seller_loss_bps,
+            expires_at,
+        );
+
+        env.storage().persistent().set(
+            &DataKey::TradeTranches(trade_id),
+            &release_tranches,
+        );
+        Self::bump_trade_ttl(&env, trade_id);
+
+        trade_id
+    }
+
+    /// Sets or updates tranches for an unfunded trade in Created status (#289).
+    pub fn set_trade_tranches(
+        env: Env,
+        trade_id: u64,
+        caller: Address,
+        tranches: Vec<i128>,
+    ) {
+        assert!(
+            Self::is_staged_release_enabled(env.clone()),
+            "staged release feature is disabled"
+        );
+        caller.require_auth();
+        let key = DataKey::Trade(trade_id);
+        let trade: Trade = Self::load_trade(&env, &key);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        assert!(
+            caller == trade.buyer || caller == admin,
+            "Unauthorized caller"
+        );
+        assert!(
+            matches!(trade.status, TradeStatus::Created),
+            "Trade must be in Created status to set tranches"
+        );
+        assert!(!tranches.is_empty(), "tranches must not be empty");
+        let mut sum: i128 = 0;
+        let mut release_tranches = Vec::new(&env);
+        for t_amt in tranches.iter() {
+            assert!(t_amt > 0, "tranche amount must be positive");
+            sum = sum.checked_add(t_amt).expect("tranche sum overflow");
+            release_tranches.push_back(ReleaseTranche {
+                amount: t_amt,
+                released: false,
+            });
+        }
+        assert!(
+            sum == trade.amount,
+            "tranches must sum exactly to trade amount"
+        );
+        env.storage().persistent().set(
+            &DataKey::TradeTranches(trade_id),
+            &release_tranches,
+        );
+        Self::bump_trade_ttl(&env, trade_id);
+    }
+
     pub fn deposit(env: Env, trade_id: u64) {
         Self::assert_not_paused(&env);
         let key = DataKey::Trade(trade_id);
         let mut trade: Trade = Self::load_trade(&env, &key);
+        Self::assert_asset_not_paused(&env, &trade.token);
         assert!(
             matches!(trade.status, TradeStatus::Created),
             "Trade must be in Created status"
@@ -2921,50 +3350,140 @@ impl EscrowContract {
         );
 
         let fee_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = checked_fee_amount(trade.amount, fee_bps);
-        let seller_amount = trade.amount - fee_amount;
-        assert!(
-            seller_amount + fee_amount == trade.amount,
-            "release_funds: cNGN conservation invariant violated"
-        );
-        assert!(seller_amount >= 0, "seller_amount must be non-negative");
-        assert!(fee_amount >= 0, "fee_amount must be non-negative");
-        let token_client = token::Client::new(&env, &trade.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &trade.seller,
-            &seller_amount,
-        );
-        if fee_amount > 0 {
-            let accrued_fees: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::AccruedFees)
-                .unwrap_or(0);
+
+        let tranches_opt: Option<Vec<ReleaseTranche>> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TradeTranches(trade_id));
+
+        if let Some(mut tranches) = tranches_opt {
+            // Staged release path (#289)
+            let mut found_index: Option<u32> = None;
+            for i in 0..tranches.len() {
+                if !tranches.get(i).unwrap().released {
+                    found_index = Some(i);
+                    break;
+                }
+            }
+            let idx = found_index.expect("All tranches have already been released");
+            let mut current_tranche = tranches.get(idx).unwrap();
+            let tranche_amount = current_tranche.amount;
+            let fee_amount = checked_fee_amount(tranche_amount, fee_bps);
+            let seller_amount = tranche_amount - fee_amount;
+            assert!(
+                seller_amount + fee_amount == tranche_amount,
+                "release_funds: cNGN conservation invariant violated"
+            );
+            assert!(seller_amount >= 0, "seller_amount must be non-negative");
+            assert!(fee_amount >= 0, "fee_amount must be non-negative");
+
+            let token_client = token::Client::new(&env, &trade.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &trade.seller,
+                &seller_amount,
+            );
+            if fee_amount > 0 {
+                let accrued_fees: i128 = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::AccruedFees)
+                    .unwrap_or(0);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::AccruedFees, &(accrued_fees + fee_amount));
+            }
+
+            current_tranche.released = true;
+            tranches.set(idx, current_tranche);
             env.storage()
-                .instance()
-                .set(&DataKey::AccruedFees, &(accrued_fees + fee_amount));
+                .persistent()
+                .set(&DataKey::TradeTranches(trade_id), &tranches);
+
+            let all_released = tranches.iter().all(|t| t.released);
+            let now = env.ledger().timestamp();
+            trade.updated_at = now;
+            if all_released {
+                trade.status = TradeStatus::Completed;
+                Self::update_release_sequence(&env, &trade, |sequence, at| {
+                    sequence.released_at = Some(at);
+                });
+                Self::record_trade_event(
+                    &env,
+                    trade_id,
+                    "released",
+                    caller.clone(),
+                    "final tranche released — trade completed",
+                );
+            } else {
+                Self::record_trade_event(
+                    &env,
+                    trade_id,
+                    "released",
+                    caller.clone(),
+                    "partial tranche funds released to seller",
+                );
+            }
+            Self::save_trade(&env, &key, &trade);
+
+            FundsReleasedEvent {
+                trade_id,
+                seller_amount,
+                fee_amount,
+            }
+            .publish(&env);
+        } else {
+            // Existing single-release path (unchanged)
+            let fee_amount = checked_fee_amount(trade.amount, fee_bps);
+            let seller_amount = trade.amount - fee_amount;
+            assert!(
+                seller_amount + fee_amount == trade.amount,
+                "release_funds: cNGN conservation invariant violated"
+            );
+            assert!(seller_amount >= 0, "seller_amount must be non-negative");
+            assert!(fee_amount >= 0, "fee_amount must be non-negative");
+            let token_client = token::Client::new(&env, &trade.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &trade.seller,
+                &seller_amount,
+            );
+            if fee_amount > 0 {
+                let accrued_fees: i128 = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::AccruedFees)
+                    .unwrap_or(0);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::AccruedFees, &(accrued_fees + fee_amount));
+            }
+            let now = env.ledger().timestamp();
+            trade.status = TradeStatus::Completed;
+            trade.updated_at = now;
+            Self::save_trade(&env, &key, &trade);
+            Self::update_release_sequence(&env, &trade, |sequence, at| {
+                sequence.released_at = Some(at);
+            });
+            Self::record_trade_event(
+                &env,
+                trade_id,
+                "released",
+                caller.clone(),
+                "funds released to seller",
+            );
+            FundsReleasedEvent {
+                trade_id,
+                seller_amount,
+                fee_amount,
+            }
+            .publish(&env);
         }
-        let now = env.ledger().timestamp();
-        trade.status = TradeStatus::Completed;
-        trade.updated_at = now;
-        Self::save_trade(&env, &key, &trade);
-        Self::update_release_sequence(&env, &trade, |sequence, at| {
-            sequence.released_at = Some(at);
-        });
-        Self::record_trade_event(
-            &env,
-            trade_id,
-            "released",
-            caller.clone(),
-            "funds released to seller",
-        );
-        FundsReleasedEvent {
-            trade_id,
-            seller_amount,
-            fee_amount,
-        }
-        .publish(&env);
+    }
+
+    /// Releases the next scheduled tranche for a staged trade (#289).
+    pub fn release_tranche(env: Env, trade_id: u64, caller: Address) {
+        Self::release_funds(env, trade_id, caller);
     }
 
     // -----------------------------------------------------------------------
@@ -3089,6 +3608,35 @@ impl EscrowContract {
     ///   treasury         = 88                   → treasury
     ///
     /// Verification: 8_712 + 1_200 + 88 = 10_000 ✓
+    ///
+    /// # Parameters
+    ///
+    /// - `trade_id` — the disputed trade.
+    /// - `mediator` — the approved mediator issuing the ruling; must sign.
+    /// - `seller_gets_bps` — share of the escrow awarded to the seller, in
+    ///   basis points (`0..=10_000`). `10_000` releases everything to the
+    ///   seller, `0` refunds everything to the buyer (minus loss-sharing).
+    ///
+    /// # Authorization
+    ///
+    /// `mediator.require_auth()`; `mediator` must be in the mediator registry
+    /// (or be the legacy single mediator).
+    ///
+    /// # Panics
+    ///
+    /// - `mediator` is not an approved mediator, or did not authorize the call.
+    /// - `seller_gets_bps > 10_000`.
+    /// - The trade value is at or above the quorum threshold
+    ///   (`"Trade value requires a mediator quorum; use cast_dispute_vote"`).
+    /// - The trade does not exist or is not in `Disputed` status.
+    /// - A payout would be negative or would break cNGN conservation
+    ///   (internal invariant; indicates a bug).
+    ///
+    /// # See also
+    ///
+    /// - [`EscrowContract::cast_dispute_vote`] for high-value (quorum) disputes.
+    /// - `docs/mediator-quorum.md` for when each resolution path applies.
+    /// - `docs/money-math-invariant-catalog.md` for the payout invariants.
     pub fn resolve_dispute(env: Env, trade_id: u64, mediator: Address, seller_gets_bps: u32) {
         // 1. Verify caller is the registered mediator
         let mediator = Self::require_mediator(&env, mediator);
@@ -3333,6 +3881,40 @@ impl EscrowContract {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Aggregated vote counts and quorum status for a disputed trade (#279).
+    ///
+    /// Read-only. `quorum_reached` is true exactly when `requires_quorum()` is
+    /// true for the trade and the weight behind the leading outcome has reached
+    /// `required_weight` — the same conclusion a client would otherwise reach by
+    /// fetching `get_dispute_votes()` and tallying it. `get_dispute_votes()` is
+    /// unchanged for callers that need the per-mediator detail.
+    pub fn get_dispute_summary(env: Env, trade_id: u64) -> DisputeSummary {
+        let config = Self::get_quorum_config(env.clone());
+        let votes = Self::quorum_state(&env, trade_id)
+            .map(|state| state.votes)
+            .unwrap_or(Vec::new(&env));
+
+        let (leading_seller_gets_bps, leading_weight) = if votes.is_empty() {
+            (0, 0)
+        } else {
+            Self::plurality_outcome(&votes)
+        };
+
+        // Evaluate `requires_quorum` last: it reads the trade, which the common
+        // "no quorum yet" poll does not need.
+        let quorum_reached = leading_weight >= config.required_weight
+            && Self::requires_quorum(env.clone(), trade_id);
+
+        DisputeSummary {
+            vote_count: votes.len(),
+            total_weight: Self::total_vote_weight(&votes),
+            leading_seller_gets_bps,
+            leading_weight,
+            required_weight: config.required_weight,
+            quorum_reached,
+        }
+    }
+
     /// Cast a weighted vote on a high-value dispute (#195).
     ///
     /// Each approved mediator may vote once. When the weight backing a single
@@ -3349,6 +3931,34 @@ impl EscrowContract {
     /// - The trade does not require quorum (use `resolve_dispute`).
     /// - This mediator has already voted.
     /// - `rationale_hash` is empty or oversized.
+    ///
+    /// # Parameters
+    ///
+    /// - `trade_id` — the disputed, quorum-requiring trade.
+    /// - `mediator` — the approved mediator casting the vote; must sign.
+    /// - `seller_gets_bps` — the outcome voted for, in basis points
+    ///   (`0..=10_000`), with the same meaning as in
+    ///   [`EscrowContract::resolve_dispute`].
+    /// - `rationale_hash` — non-empty hash/CID of the written rationale, at
+    ///   most `MAX_HASH_LEN` bytes.
+    ///
+    /// # Authorization
+    ///
+    /// `mediator.require_auth()`; `mediator` must be an approved mediator. Its
+    /// configured weight (default `DEFAULT_MEDIATOR_WEIGHT`) is counted
+    /// towards the outcome it votes for.
+    ///
+    /// # Panics
+    ///
+    /// Panics on each condition listed under "Reverts if" above, and when
+    /// `seller_gets_bps > 10_000`.
+    ///
+    /// # See also
+    ///
+    /// - [`EscrowContract::resolve_dispute_by_fallback`] when quorum is not
+    ///   reached before the vote window closes.
+    /// - [`EscrowContract::get_dispute_votes`] to read the votes cast so far.
+    /// - `docs/mediator-quorum.md`.
     pub fn cast_dispute_vote(
         env: Env,
         trade_id: u64,
@@ -3453,6 +4063,30 @@ impl EscrowContract {
     /// Ties resolve to the lowest `seller_gets_bps` among the tied outcomes —
     /// the buyer-protective reading, since the buyer is the party whose funds
     /// are held and who did not receive the goods in question.
+    ///
+    /// # Parameters
+    ///
+    /// - `trade_id` — the disputed, quorum-requiring trade.
+    /// - `caller` — the buyer, the seller, or any approved mediator; must sign.
+    ///
+    /// # Authorization
+    ///
+    /// `caller.require_auth()`; `caller` must be a party to the trade or an
+    /// approved mediator.
+    ///
+    /// # Panics
+    ///
+    /// - The trade does not exist or is not in `Disputed` status.
+    /// - `caller` is neither a trade party nor an approved mediator.
+    /// - The trade does not require quorum (use [`EscrowContract::resolve_dispute`]).
+    /// - No votes have been cast on the dispute.
+    /// - The vote window has not closed yet.
+    /// - The total vote weight is below `fallback_min_weight`.
+    ///
+    /// # See also
+    ///
+    /// - [`EscrowContract::cast_dispute_vote`] for the normal quorum path.
+    /// - `docs/mediator-quorum.md` for the fallback rules.
     pub fn resolve_dispute_by_fallback(env: Env, trade_id: u64, caller: Address) {
         caller.require_auth();
 
@@ -3600,76 +4234,8 @@ impl EscrowContract {
     /// `ipfs_hash` is typically an IPFS CID pointing to the evidence content.
     /// `description_hash` is an optional IPFS CID or hash describing the evidence.
     ///
-    // =========================================================================
-    // Issue #8 — Bound the number of evidence records per trade
-    // https://github.com/Happybello365/innov8/issues/8
-    //
-    // PROBLEM
-    // -------
-    // submit_evidence appends to a per-trade list with no upper bound.
-    // A party in a dispute could call submit_evidence in a loop, inflating
-    // the persistent storage (and rent) for the trade entry indefinitely.
-    // Every subsequent read/write to that trade pays higher gas.
-    //
-    // FIX
-    // ---
-    // Add a constant cap per party per trade:
-    //
-    //   /// Maximum evidence submissions allowed per party per trade.
-    //   /// Buyer, seller, and mediator each get this many slots independently.
-    //   /// Prevents unbounded storage growth during disputes.
-    //   pub const MAX_EVIDENCE_PER_PARTY: u32 = 10;
-    //
-    // At the start of submit_evidence, after verifying is_party/is_mediator,
-    // count existing submissions from the caller:
-    //
-    //   let evidence_key = DataKey::Evidence(trade_id);
-    //   let existing: Vec<EvidenceRecord> = env
-    //       .storage()
-    //       .persistent()
-    //       .get(&evidence_key)
-    //       .unwrap_or_else(|| Vec::new(&env));
-    //
-    //   let caller_count = existing.iter()
-    //       .filter(|r| r.submitter == caller)
-    //       .count() as u32;
-    //
-    //   if caller_count >= MAX_EVIDENCE_PER_PARTY {
-    //       panic_with_error!(&env, Error::EvidenceLimitExceeded);
-    //   }
-    //
-    // Add a new error variant:
-    //   EvidenceLimitExceeded = <next_available_code>,
-    //
-    // DOCUMENTATION
-    // -------------
-    // Add to docs/contract-error-codes.md:
-    //   | EvidenceLimitExceeded | NNN | Caller has submitted the maximum
-    //     number of evidence records (MAX_EVIDENCE_PER_PARTY = 10) for this trade |
-    //
-    // The constant MAX_EVIDENCE_PER_PARTY must also be documented in the
-    // contract README / SECURITY.md under "Dispute Mechanics".
-    //
-    // TESTS TO ADD (contracts/amana_escrow/src/tests/ttl_tests.rs)
-    // -------------------------------------------------------------
-    //   test_evidence_cap_boundary_accepted()
-    //     Submit exactly MAX_EVIDENCE_PER_PARTY items from buyer.
-    //     Assert: all succeed.
-    //
-    //   test_evidence_cap_boundary_plus_one_rejected()
-    //     Submit MAX_EVIDENCE_PER_PARTY + 1 items from buyer.
-    //     Assert: last call returns Err(Ok(Error::EvidenceLimitExceeded)).
-    //
-    //   test_evidence_cap_is_per_party()
-    //     Submit MAX_EVIDENCE_PER_PARTY from buyer AND MAX_EVIDENCE_PER_PARTY
-    //     from seller in the same trade.
-    //     Assert: all succeed (each party gets their own cap, not a shared one).
-    //
-    // FILES TO MODIFY
-    // ---------------
-    //   contracts/amana_escrow/src/lib.rs     ← (THIS FUNCTION) add cap check
-    //   contracts/amana_escrow/src/tests/ttl_tests.rs ← add boundary tests
-    //   docs/contract-error-codes.md          ← add EvidenceLimitExceeded
+    // Issue #8 / #272: each submitter is capped at MAX_EVIDENCE_PER_PARTY
+    // records per trade; the cap is readable via get_max_evidence_per_party.
     // =========================================================================
     // Issue #10 — Add a lightweight get_trade_status getter
     // https://github.com/Happybello365/innov8/issues/10
@@ -3785,6 +4351,17 @@ impl EscrowContract {
             .get(&evidence_key)
             .unwrap_or(Vec::new(&env));
 
+        // Per-submitter cap (#8). The same value is exposed read-only through
+        // get_max_evidence_per_party (#272) so off-chain clients never drift.
+        let caller_count = evidence_list
+            .iter()
+            .filter(|r| r.submitter == caller)
+            .count() as u32;
+        assert!(
+            caller_count < Self::get_max_evidence_per_party(env.clone()),
+            "Evidence limit per party exceeded"
+        );
+
         // Create new evidence record
         let now = env.ledger().timestamp();
         let record = EvidenceRecord {
@@ -3818,6 +4395,16 @@ impl EscrowContract {
             evidence_hash: legacy_bytes,
         }
         .publish(&env);
+    }
+
+    /// Maximum number of evidence records a single submitter may add to one
+    /// trade (#272).
+    ///
+    /// Read-only and auth-free. This is the exact value `submit_evidence`
+    /// enforces, so the backend and frontends can read it from chain state
+    /// instead of hardcoding [`MAX_EVIDENCE_PER_PARTY`].
+    pub fn get_max_evidence_per_party(_env: Env) -> u32 {
+        MAX_EVIDENCE_PER_PARTY
     }
 
     /// Return all evidence records submitted for a trade, in chronological order.

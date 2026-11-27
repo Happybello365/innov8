@@ -6,10 +6,40 @@ instead of everyone hand-building their own queries. Complements
 [METRICS.md](./METRICS.md) (frontend analytics event schema) — this covers
 backend/infra signals instead.
 
+## Business Metrics Dashboard
+
+[`infra/grafana/dashboards/business-metrics.json`](../infra/grafana/dashboards/business-metrics.json)
+is provisioned by the same file provider and Prometheus datasource as the
+Golden Signals dashboard. It adds business-level panels for:
+
+| Panel | Source metric | Meaning |
+|---|---|---|
+| Trades created and settled | `innov8_trades_total{event="created"}` and `event=~"released|refunded"` | Rolling one-hour trade lifecycle event counts |
+| Disputes opened and resolved | `innov8_trades_total{event="disputed"}` and `event="dispute_resolved"` | Rolling one-hour dispute lifecycle event counts |
+| Released payout volume | `innov8_trade_gmv_usdc_cents_sum{outcome="released"}` | Released trade GMV over one hour, converted from USDC cents to USDC |
+
+These are backend OpenTelemetry metrics from
+[`backend/src/lib/metrics.ts`](../backend/src/lib/metrics.ts). The
+`dispute_resolved` event is recorded when the backend handles a
+`DisputeResolved` event. The trade-created funnel metric records both pending
+database creations and on-chain confirmations, so it is a lifecycle event
+count rather than a count of unique trades. Released GMV is a proxy for
+released payout volume and excludes refunded trades.
+
+The business dashboard uses the Prometheus datasource already provisioned
+for Golden Signals. Prometheus must scrape the backend's `/metrics` endpoint
+(`PROMETHEUS_PORT`, default `9464`). With the namespace default-deny baseline,
+the scraper pods need the `app.kubernetes.io/name: prometheus` label to match
+the backend metrics ingress policy. Panels remain empty until the
+corresponding trade events have occurred and been scraped. No additional
+exporter is needed.
+
 ## Files
 
 - [`infra/grafana/dashboards/golden-signals.json`](../infra/grafana/dashboards/golden-signals.json)
   — the dashboard definition itself.
+- [`infra/grafana/dashboards/business-metrics.json`](../infra/grafana/dashboards/business-metrics.json)
+  — business-level trade, dispute, and released payout metrics.
 - [`infra/grafana/provisioning/dashboards/dashboards.yaml`](../infra/grafana/provisioning/dashboards/dashboards.yaml)
   and [`infra/grafana/provisioning/datasources/datasources.yaml`](../infra/grafana/provisioning/datasources/datasources.yaml)
   — Grafana's file-provisioning config, so the dashboard and its Prometheus
@@ -77,14 +107,14 @@ official Grafana image) and `infra/grafana/dashboards/` into
 and dashboard on startup — no UI steps.
 
 **Manual (one-off check):** Grafana UI → Dashboards → New → Import → paste
-the contents of `golden-signals.json`. Confirms the JSON is well-formed
+the contents of either dashboard JSON. Confirms the JSON is well-formed
 before wiring up automated provisioning.
 
 ## Walkthrough
 
 1. Deploy the app with `PROMETHEUS_PORT` set and something scraping it
    (Prometheus server pointed at `/metrics` on that port).
-2. Provision Grafana as above; open the "Amana" folder, "Amana — Golden
+2. Provision Grafana as above; open the "innov8" folder, "innov8 — Golden
    Signals" dashboard.
 3. Confirm the top row (request rate, latency) populates first — those come
    straight from HTTP auto-instrumentation and need no extra setup.
@@ -95,6 +125,10 @@ before wiring up automated provisioning.
    saturation row populates too.
 6. Deploy again through `staging.yml` and confirm a "Deploy" annotation
    marker appears on the dashboard at the deploy time.
+
+Open "Amana — Business Metrics" in the same folder to inspect the rolling
+hourly trade, dispute, and released payout panels. Confirm the metric series
+are present at the backend `/metrics` endpoint if a panel has no data.
 
 (No screenshot is checked into the repo — capture one from your own Grafana
 instance once provisioned, since panel appearance depends on your Grafana

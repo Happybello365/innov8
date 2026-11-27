@@ -22,6 +22,8 @@ export const MOCK_PORT = 4001;
 
 const WALLET_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA001';
 const SELLER_ADDRESS = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB002';
+/** Wallet whose /auth/verify is rejected — drives the rejected-connection E2E case. */
+export const REJECTED_WALLET_ADDRESS = 'GREJECTEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA003';
 
 const FIXTURE_TRADES = [
   {
@@ -58,7 +60,16 @@ const FIXTURE_TRADES = [
 // ---------------------------------------------------------------------------
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const url = req.url ?? '/';
+  let body = '';
+  req.on('data', (chunk) => {
+    body += chunk;
+  });
+  req.on('end', () => route(req, res, body));
+}
+
+function route(req: http.IncomingMessage, res: http.ServerResponse, body: string): void {
+  // The app prefixes consumer routes with /api/v1 — match both lanes.
+  const url = (req.url ?? '/').replace(/^\/api\/v1(?=\/)/, '');
   const method = req.method ?? 'GET';
 
   res.setHeader('Content-Type', 'application/json');
@@ -80,6 +91,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   }
 
   if (url === '/auth/verify' && method === 'POST') {
+    if (body.includes(REJECTED_WALLET_ADDRESS)) {
+      res.writeHead(401);
+      res.end(JSON.stringify({ error: 'Signature verification failed' }));
+      return;
+    }
     const token = buildJwt(WALLET_ADDRESS);
     res.writeHead(200);
     res.end(JSON.stringify({ token }));

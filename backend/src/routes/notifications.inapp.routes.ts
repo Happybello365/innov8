@@ -130,6 +130,25 @@ export function createNotificationsRouter(prisma: PrismaClient = defaultPrisma) 
     },
   );
 
+  router.get(
+    "/notifications/unread-count",
+    authMiddleware,
+    async (req: AuthRequest, res: Response, next) => {
+      try {
+        const walletAddress = caller(req, res);
+        if (!walletAddress) return;
+
+        const count = await prisma.inAppNotification.count({
+          where: { userAddress: walletAddress, isRead: false },
+        });
+
+        res.status(200).json({ count });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
   router.post(
     "/notifications/read-all",
     authMiddleware,

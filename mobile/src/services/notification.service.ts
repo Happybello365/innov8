@@ -88,6 +88,28 @@ export function setupNotificationListeners(
   return () => subscription.remove();
 }
 
+/**
+ * Payload of the notification the app was cold-started from, if any
+ * (issue #259). Runtime taps go through `setupNotificationListeners`.
+ */
+export async function getInitialNotificationData(): Promise<NotificationData | null> {
+  try {
+    const response = await Notifications.getLastNotificationResponseAsync();
+    return (response?.notification.request.content.data as NotificationData) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** IANA timezone of the device, shown next to quiet-hours controls (issue #260). */
+export function getDeviceTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 export function setupForegroundNotificationHandler(
   onNotification: (notification: Notifications.Notification) => void,
 ): () => void {
