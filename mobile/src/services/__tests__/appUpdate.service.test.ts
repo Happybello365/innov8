@@ -2,6 +2,7 @@
 import {
   __resetUpdateSession,
   checkForUpdate,
+  loadUpdatePolicy,
   compareVersions,
   dismissUpdateForSession,
   isUpdateDismissed,
@@ -43,6 +44,19 @@ describe('appUpdate.service (issue #266)', () => {
     mockManifest({}, false);
     expect(await checkForUpdate('0.1.0', URL)).toBeNull();
     expect(await checkForUpdate('0.1.0', undefined)).toBeNull();
+  });
+
+  it('requires a version strictly below the configured minimum to update', async () => {
+    mockManifest({ latestVersion: '0.3.0', minimumVersion: '0.2.0' });
+    expect((await loadUpdatePolicy('0.1.0', URL))?.required).toBe(true);
+    expect((await loadUpdatePolicy('0.2.0', URL))?.required).toBe(false);
+  });
+
+  it('rejects an inconsistent version policy and ignores unsupported store links', async () => {
+    mockManifest({ latestVersion: '0.2.0', minimumVersion: '0.3.0' });
+    expect(await loadUpdatePolicy('0.1.0', URL)).toBeNull();
+    mockManifest({ latestVersion: '0.2.0', minimumVersion: '0.2.0', iosStoreUrl: 'https://example.com/app', androidStoreUrl: 'https://example.com/app' });
+    expect(await loadUpdatePolicy('0.1.0', URL)).toMatchObject({ required: true, storeUrl: undefined });
   });
 
   it('remembers dismissal for the rest of the session', () => {
