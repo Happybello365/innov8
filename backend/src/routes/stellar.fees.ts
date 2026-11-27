@@ -3,7 +3,9 @@ import { horizonServer } from "../config/stellar";
 import { appLogger } from "../middleware/logger";
 import { alertService } from "../services/alert.service";
 import {
+  assertFeeWithinBounds,
   computeBufferedFee,
+  FeeOutOfBoundsError,
   feeBufferOptionsFromEnv,
   type FeePercentile,
 } from "../services/feeEstimator.service";
@@ -54,6 +56,8 @@ export function createStellarFeesRouter(): Router {
 
       const opts = feeBufferOptionsFromEnv();
       const estimate = computeBufferedFee(feeStats, opts);
+      // Issue #466: reject abnormal raw recommendations instead of silently clamping.
+      assertFeeWithinBounds(estimate.percentileFee);
 
       const recommendedTxFee = estimate.bufferedFee * operations;
 
@@ -99,6 +103,17 @@ export function createStellarFeesRouter(): Router {
 
       res.json({ ...payload, cached: false });
     } catch (error) {
+      if (error instanceof FeeOutOfBoundsError) {
+        appLogger.warn(
+          { fee: error.fee, floor: error.floor, ceiling: error.ceiling },
+          "Rejected abnormal Stellar fee recommendation",
+        );
+        res.status(503).json({
+          error: "Stellar fee recommendation outside safety bounds",
+          code: "FEE_OUT_OF_BOUNDS",
+        });
+        return;
+      }
       appLogger.error({ error }, "Failed to fetch Stellar fee stats");
       res.status(502).json({
         error: "Failed to fetch fee data from Stellar network",

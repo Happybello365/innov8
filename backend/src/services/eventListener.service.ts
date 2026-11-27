@@ -1,3 +1,4 @@
+import { duplicateDeliveryCounter } from "../lib/outbox/duplicateDeliveryCounter";
 import { PrismaClient, Prisma } from "@prisma/client";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import {
@@ -77,6 +78,7 @@ export async function processEventAtomically(
     });
   } catch (err) {
     if (isPrismaUniqueConstraintError(err)) {
+      duplicateDeliveryCounter.record("processed_event_conflict", event.eventType);
       appLogger.debug(
         { eventId: event.eventId },
         "[EventListener] Duplicate insert ignored",
@@ -388,6 +390,7 @@ export class EventListenerService {
           select: { status: true },
         });
         if (current?.status === "PROCESSED") {
+          duplicateDeliveryCounter.record("outbox_already_processed", event.eventType);
           return;
         }
 
@@ -415,6 +418,7 @@ export class EventListenerService {
       if (!isPrismaUniqueConstraintError(error)) {
         throw error;
       }
+      duplicateDeliveryCounter.record("processed_event_conflict", event.eventType);
       await this.prisma.chainEventOutbox.update({
         where: { id: outboxId },
         data: {

@@ -13,6 +13,8 @@ import {
   exportOutboxGaps,
 } from "../lib/outbox/outboxScanner";
 import { adminMiddleware } from "../middleware/admin.middleware";
+import { replayDeadLetter, validateReplayRequest } from "../lib/outbox/deadLetterReplay";
+import { duplicateDeliveryCounter } from "../lib/outbox/duplicateDeliveryCounter";
 
 const isAdmin = adminMiddleware;
 
@@ -181,6 +183,7 @@ export function createOutboxRoutes(): Router {
               : null,
             oldestPendingId: oldestPending?.id,
           },
+          duplicateDeliveries: duplicateDeliveryCounter.snapshot(),
           timestamp: new Date().toISOString(),
         });
       } catch (error) {
@@ -195,59 +198,49 @@ export function createOutboxRoutes(): Router {
 
   /**
    * POST /admin/outbox/replay
-   * Manually replay a dead-lettered event or failed event
+   * Replay a dead-lettered event (issue #463).
+   * Body: { eventId: number, reason: string, dryRun?: boolean }
+   * Only DEAD_LETTER/FAILED events are replayable; every replay is audited.
    */
   router.post(
     "/admin/outbox/replay",
     isAdmin,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const { eventId, tradeId } = req.body;
-
-        if (!eventId && !tradeId) {
-          return res.status(400).json({
-            error: "Missing required field: eventId or tradeId",
-          });
+        const parsed = validateReplayRequest(req.body);
+        if (typeof parsed === "string") {
+          return res.status(400).json({ error: parsed });
         }
+
+        const actor =
+          (req as any).admin?.address ??
+          (req as any).user?.walletAddress ??
+          (req as any).user?.address ??
+          "unknown-admin";
 
         const prisma = require("../lib/db").prisma;
+        const result = await replayDeadLetter(prisma, { ...parsed, actor });
 
-        const event = await prisma.chainEventOutbox.findFirst({
-          where: eventId ? { id: parseInt(eventId) } : { tradeId },
-          orderBy: { createdAt: "desc" },
-        });
-
-        if (!event) {
-          return res.status(404).json({ error: "Event not found" });
+        if (!result.ok) {
+          const status = result.code === "NOT_FOUND" ? 404 : result.code === "NOT_REPLAYABLE" ? 409 : 400;
+          return res.status(status).json({ error: result.message, code: result.code });
         }
 
-        // Reset event to PENDING for reprocessing
-        await prisma.chainEventOutbox.update({
-          where: { id: event.id },
-          data: {
-            status: "PENDING",
-            attempts: 0,
-            nextAttemptAt: new Date(),
-            lastError: null,
-          },
-        });
-
         appLogger.info(
-          { eventId: event.id, tradeId: event.tradeId },
-          "[OutboxRoute] Event manually replayed",
+          { eventId: result.eventId, tradeId: result.tradeId, dryRun: result.dryRun },
+          "[OutboxRoute] Dead-letter replay",
         );
 
         res.status(200).json({
-          message: "Event queued for replay",
-          eventId: event.id,
-          tradeId: event.tradeId,
+          message: result.dryRun ? "Dry run: event is replayable" : "Event queued for replay",
+          eventId: result.eventId,
+          tradeId: result.tradeId,
+          previousStatus: result.previousStatus,
+          dryRun: result.dryRun,
         });
       } catch (error) {
         appLogger.error({ error }, "[OutboxRoute] Event replay failed");
-        res.status(500).json({
-          error: "Event replay failed",
-          message: String(error),
-        });
+        res.status(500).json({ error: "Event replay failed" });
       }
     },
   );
