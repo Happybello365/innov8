@@ -65,6 +65,13 @@ schedule is tracked as a follow-up once team size justifies it — until then,
 every `page`-routed alert type here should map to a severity in that table
 so escalation timing is unambiguous.
 
+Cost budget and anomaly alerts use the `category=cost` label and route to the
+`cost-ticket` receiver in
+[`infra/prometheus/alertmanager-slo.yml`](../infra/prometheus/alertmanager-slo.yml).
+They remain ticket-severity because billing fluctuations need same-day
+triage, not an immediate page. See the [cost alert metric contract](./cost-anomaly-alerts.md)
+and [cost anomaly runbook](./runbooks/cost-anomaly.md).
+
 ## 5. Monthly alert review
 
 Once a month, review the alert set for noise: alert types that fire without
