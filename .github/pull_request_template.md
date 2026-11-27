@@ -11,6 +11,17 @@
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
 - [ ] Infrastructure / CI / Policy / Documentation update
 
+## Release Notes
+<!-- Release notes are generated automatically from merged PRs. Help the generator categorize this change. -->
+- [ ] This change should be **excluded** from release notes (e.g. internal-only, no user-facing impact)
+- Changelog category (select one; see the [Release Notes Generation Guide](../docs/release-notes-guide.md)):
+  - [ ] Added
+  - [ ] Changed
+  - [ ] Fixed
+  - [ ] Security
+  - [ ] Deprecated
+  - [ ] Removed
+
 ## PR Checklist
 - [ ] Code builds and passes all unit & integration tests locally (`pnpm test` / `cargo test`)
 - [ ] Documentation has been updated to reflect code changes

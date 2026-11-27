@@ -12,6 +12,7 @@ import {
   InvalidCursorError,
 } from "../lib/cursorPagination";
 import { createWalletRateLimiter } from "../lib/rateLimit";
+import { summarizeWebhookHealth } from "../services/webhookHealth.service";
 
 const webhookLogsParamsSchema = z.object({
   id: z.string().regex(/^\d+$/, "Webhook ID must be a numeric string"),
@@ -21,6 +22,10 @@ const webhookLogsQuerySchema = z.object({
   cursor: z.string().optional(),
   page: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().positive().max(100).default(20),
+});
+
+const webhookHealthQuerySchema = z.object({
+  windowHours: z.coerce.number().int().positive().max(720).default(24),
 });
 
 const redeliverParamsSchema = z.object({
@@ -246,6 +251,47 @@ export function createWebhookLogsRouter(prisma: PrismaClient = defaultPrisma) {
           message: "Redelivery recorded",
           attempt: newAttempt,
         });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  /**
+   * GET /webhooks/health
+   * Delivery-health aggregates (age, success rate, retry state) for the caller's endpoints (#471).
+   * Response bodies are never included so no target data leaks into the dashboard.
+   */
+  router.get(
+    "/webhooks/health",
+    authMiddleware,
+    validateRequest({ query: webhookHealthQuerySchema }),
+    async (req: AuthRequest, res: Response, next) => {
+      try {
+        const walletAddress = caller(req, res);
+        if (!walletAddress) return;
+        const { windowHours } = req.query as unknown as { windowHours: number };
+        const now = new Date();
+        const since = new Date(now.getTime() - windowHours * 3_600_000);
+
+        const webhooks = await prisma.webhook.findMany({
+          where: { userAddress: walletAddress },
+          select: {
+            id: true,
+            url: true,
+            isActive: true,
+            createdAt: true,
+            deliveryAttempts: {
+              where: { timestamp: { gte: since } },
+              select: { timestamp: true, status: true, statusCode: true },
+              orderBy: { timestamp: "desc" },
+            },
+          },
+          orderBy: { createdAt: "asc" },
+        });
+
+        const endpoints = webhooks.map((w) => summarizeWebhookHealth(w, w.deliveryAttempts, now));
+        res.status(200).json({ windowHours, generatedAt: now.toISOString(), endpoints });
       } catch (error) {
         next(error);
       }

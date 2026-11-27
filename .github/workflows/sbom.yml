@@ -4,6 +4,12 @@ name: SBOM
 # (backend, frontend, mobile) and attaches it to the GitHub Release, per
 # docs/sbom.md. Also runs weekly on main to diff the current dependency tree
 # against the most recently published SBOMs and flag drift/new vulns.
+#
+# Supply-chain provenance (issue #560): each SBOM is also attested with SLSA
+# build provenance via actions/attest-build-provenance. The attestation is
+# published to the repository's attestation store and attached to the release
+# alongside the SBOM. Consumers verify with `gh attestation verify` before
+# trusting an artifact (see docs/sbom.md).
 on:
   release:
     types: [published]
@@ -17,6 +23,9 @@ on:
 
 permissions:
   contents: write
+  # Required to write SLSA provenance attestations to the repo attestation store.
+  id-token: write
+  attestations: write
 
 jobs:
   generate-sbom:
@@ -42,6 +51,11 @@ jobs:
             --output-file "sbom-${{ matrix.component }}.cdx.json" \
             "${{ matrix.component }}/package.json"
 
+      - name: Generate SLSA build provenance attestation
+        uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c  # v1
+        with:
+          subject-path: sbom-${{ matrix.component }}.cdx.json
+
       - name: Upload SBOM as workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
@@ -56,6 +70,30 @@ jobs:
         run: |
           TAG="${{ github.event.release.tag_name || github.ref_name }}"
           gh release upload "$TAG" "sbom-${{ matrix.component }}.cdx.json" --clobber --repo "${{ github.repository }}"
+
+  verify-provenance:
+    # Fail closed: verify the published attestation for each SBOM before the
+    # release is considered consumable. Runs after all SBOMs are attested.
+    if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    name: Verify provenance (${{ matrix.component }})
+    needs: generate-sbom
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [backend, frontend, mobile]
+    steps:
+      - name: Download SBOM artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4
+        with:
+          name: sbom-${{ matrix.component }}
+
+      - name: Verify SLSA provenance attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh attestation verify "sbom-${{ matrix.component }}.cdx.json" \
+            --repo "${{ github.repository }}" \
+            --signer-workflow "${{ github.repository }}/.github/workflows/sbom.yml"
 
   vulnerability-diff:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

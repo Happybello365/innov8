@@ -84,6 +84,13 @@ export interface ExportJobData {
   filters?: Record<string, unknown>;
 }
 
+export interface AuditExportJobData {
+  /** Row ID in the AuditExport table — used to drive status transitions. */
+  exportId: string;
+  requestedBy: string;
+  format: 'csv' | 'json';
+}
+
 export interface WebhookPurgeJobData {
   /** Retention period in days. Defaults to WEBHOOK_DELIVERY_RETENTION_DAYS env var or 30. */
   retentionDays?: number;
@@ -107,6 +114,11 @@ export const notificationQueue = new Queue<NotificationJobData>('notifications',
 });
 
 export const exportQueue = new Queue<ExportJobData>('exports', {
+  connection: createQueueConnection(),
+  defaultJobOptions,
+});
+
+export const auditExportQueue = new Queue<AuditExportJobData>('audit-exports', {
   connection: createQueueConnection(),
   defaultJobOptions,
 });

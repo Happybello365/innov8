@@ -3,6 +3,7 @@ import { env } from "../config/env";
 import { appLogger } from "../middleware/logger";
 import { prisma } from "../lib/db";
 import { TradeStatus } from "@prisma/client";
+import { canonicalize } from "../lib/canonicalJson";
 
 interface WebhookPayload {
   event: string;
@@ -137,7 +138,8 @@ export class WebhookService {
       data: metadata,
     };
 
-    const body = JSON.stringify(payload);
+    // Canonical (sorted-key) serialization so signatures are unambiguous (#472).
+    const body = canonicalize(payload);
 
     await Promise.allSettled(
       deliveryTargets.map((target) => this.sendWebhookWithRetry(target, body, tradeId, status)),
