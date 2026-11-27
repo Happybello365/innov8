@@ -11,6 +11,7 @@ import {
   recordTimeToRelease,
   recordTradeGmv,
 } from "../lib/metrics";
+import { buildPaginationMeta } from "../lib/paginationMeta";
 
 function parseAdminPubkeys(): Set<string> {
   const raw = process.env.ADMIN_STELLAR_PUBKEYS ?? "";
@@ -154,12 +155,7 @@ export class TradeService {
 
       return {
         items: [...watchedPage, ...unwatchlisted],
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.max(1, Math.ceil(total / limit)),
-        },
+        pagination: buildPaginationMeta(page, limit, total),
       };
     }
 
@@ -175,12 +171,7 @@ export class TradeService {
 
     return {
       items,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.max(1, Math.ceil(total / limit)),
-      },
+      pagination: buildPaginationMeta(page, limit, total),
     };
   }
 

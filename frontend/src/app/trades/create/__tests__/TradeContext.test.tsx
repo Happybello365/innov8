@@ -239,3 +239,55 @@ describe('TradeContext', () => {
         });
     });
 });
+
+describe('TradeContext draft recovery & conflicts', () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <TradeProvider>{children}</TradeProvider>
+    );
+    beforeEach(() => localStorage.clear());
+
+    it('restores a saved draft and exposes recovery timestamp', () => {
+        const savedAt = new Date().toISOString();
+        localStorage.setItem('amana:draft-trade', JSON.stringify({ version: 1, tabId: 'other', savedAt, step: 2, data: { commodity: 'Rice' } }));
+        const { result } = renderHook(() => useTrade(), { wrapper });
+        expect(result.current.data.commodity).toBe('Rice');
+        expect(result.current.step).toBe(2);
+        expect(result.current.recoveredDraftAt).toBe(savedAt);
+    });
+
+    it('discardDraft resets the wizard and clears storage', () => {
+        localStorage.setItem('amana:draft-trade', JSON.stringify({ version: 1, tabId: 'other', savedAt: new Date().toISOString(), step: 2, data: { commodity: 'Rice' } }));
+        const { result } = renderHook(() => useTrade(), { wrapper });
+        act(() => result.current.discardDraft());
+        expect(result.current.data.commodity).toBe('');
+        expect(result.current.step).toBe(1);
+        expect(result.current.recoveredDraftAt).toBeNull();
+        expect(localStorage.getItem('amana:draft-trade')).toBeNull();
+    });
+
+    it('raises a conflict when another tab saves a newer draft and resolves it', () => {
+        const { result } = renderHook(() => useTrade(), { wrapper });
+        act(() => result.current.update({ commodity: 'Maize' }));
+        const incoming = JSON.stringify({ version: 1, tabId: 'other-tab', savedAt: new Date(Date.now() + 5000).toISOString(), step: 1, data: { commodity: 'Sorghum' } });
+        act(() => {
+            window.dispatchEvent(new StorageEvent('storage', { key: 'amana:draft-trade', newValue: incoming }));
+        });
+        expect(result.current.conflict?.incoming.data.commodity).toBe('Sorghum');
+        act(() => result.current.acceptIncomingDraft());
+        expect(result.current.conflict).toBeNull();
+        expect(result.current.data.commodity).toBe('Sorghum');
+    });
+
+    it('keepLocalDraft retains local edits and overwrites storage', () => {
+        const { result } = renderHook(() => useTrade(), { wrapper });
+        act(() => result.current.update({ commodity: 'Maize' }));
+        const incoming = JSON.stringify({ version: 1, tabId: 'other-tab', savedAt: new Date(Date.now() + 5000).toISOString(), step: 1, data: { commodity: 'Sorghum' } });
+        act(() => {
+            window.dispatchEvent(new StorageEvent('storage', { key: 'amana:draft-trade', newValue: incoming }));
+        });
+        act(() => result.current.keepLocalDraft());
+        expect(result.current.conflict).toBeNull();
+        expect(result.current.data.commodity).toBe('Maize');
+        expect(JSON.parse(localStorage.getItem('amana:draft-trade')!).data.commodity).toBe('Maize');
+    });
+});
