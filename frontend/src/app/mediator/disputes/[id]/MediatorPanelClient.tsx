@@ -15,6 +15,7 @@ import { signTransaction } from "@stellar/freighter-api";
 import { useFreighterIdentity } from "@/hooks/useFreighterIdentity";
 import { Badge } from "@/components/ui/Badge";
 import { WalletAddressBadge } from "@/components/ui/WalletAddressBadge";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { api, ApiError, type EvidenceRecord } from "@/lib/api";
 
 type Props = { disputeId: string };
@@ -131,6 +132,7 @@ export default function MediatorPanelClient({ disputeId }: Props) {
   });
 
   const submittingRef = useRef(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const [execString, setExecString] = useState<string>("");
 
@@ -446,7 +448,11 @@ export default function MediatorPanelClient({ disputeId }: Props) {
                 {videoLoadState === "loading" && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
                     <div className="flex flex-col items-center gap-2">
-                      <div className="animate-spin w-8 h-8 border-2 border-gold border-t-transparent rounded-full" />
+                      <div
+                        role="status"
+                        aria-label="Loading video"
+                        className={`w-8 h-8 border-2 border-gold border-t-transparent rounded-full ${prefersReducedMotion ? "" : "animate-spin"}`}
+                      />
                       <span className="text-gray-300 text-xs">
                         Loading via gateway {activeGatewayIndex + 1}/
                         {PINATA_GATEWAYS.length}…
@@ -648,7 +654,7 @@ export default function MediatorPanelClient({ disputeId }: Props) {
             if (e.target === e.currentTarget) closeModal();
           }}
         >
-          <div className="bg-bg-card rounded-t-2xl sm:rounded-2xl shadow-lg w-full max-w-md p-4 sm:p-6 space-y-4 animate-slide-up sm:animate-none">
+          <div className={`bg-bg-card rounded-t-2xl sm:rounded-2xl shadow-lg w-full max-w-md p-4 sm:p-6 space-y-4 ${prefersReducedMotion ? "" : "animate-slide-up"} sm:animate-none`}>
             <h2
               id="modal-title"
               className="text-lg sm:text-xl font-bold text-text-primary"

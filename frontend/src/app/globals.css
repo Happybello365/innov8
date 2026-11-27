@@ -236,6 +236,13 @@ html.theme-transition *::after {
   }
 }
 
+/* Respect OS-level reduced-motion preference for decorative transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-up {
+    animation: none;
+  }
+}
+
 @layer base {
   /* Scrollbar styling */
   ::-webkit-scrollbar {

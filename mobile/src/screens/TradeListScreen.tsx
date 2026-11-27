@@ -11,7 +11,6 @@ import {
   Animated,
   useColorScheme,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StackScreenProps } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types/navigation';
@@ -27,6 +26,7 @@ import { formatAmount } from '../utils/formatAmount';
 import { getTheme } from '../constants/theme';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import TradeDetailScreen from './TradeDetailScreen';
+import { copySensitiveValue } from '../utils/secureClipboard';
 
 type Props = StackScreenProps<RootStackParamList, 'TradeList'>;
 
@@ -182,8 +182,8 @@ export default function TradeListScreen({ navigation }: Props) {
 
   const copyTradeId = useCallback(
     async (tradeId: string) => {
-      await Clipboard.setStringAsync(tradeId);
-      showToast('Trade ID copied');
+      const result = await copySensitiveValue(tradeId, 'Trade ID');
+      if (result === 'copied') showToast('Trade ID copied');
     },
     [showToast]
   );

@@ -10,6 +10,7 @@ import { useWallet } from "@/hooks/useWallet";
 import { api, ApiError } from "@/lib/api";
 import { apiConfig } from "@/lib/api";
 import { TxSummaryModal, type TxSummaryItem } from "@/components/ui/TxSummaryModal";
+import { TradeNotFoundState } from "@/components/trade/TradeNotFoundState";
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleString("en-US", {
@@ -424,11 +425,7 @@ export default function TradeDetailPage() {
       )}
 
       {/* Not found */}
-      {!loading && !error && !trade && (
-        <div className="rounded-lg border border-border-default bg-bg-card dark:bg-surface-1 p-8 text-center">
-          <p className="text-text-muted">Trade not found</p>
-        </div>
-      )}
+      {!loading && !error && !trade && <TradeNotFoundState tradeId={tradeId} />}
     </div>
   );
 }

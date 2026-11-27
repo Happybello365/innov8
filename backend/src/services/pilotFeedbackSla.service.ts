@@ -1,6 +1,7 @@
 import { prisma } from "../lib/db";
 import { appLogger } from "../middleware/logger";
 import { alertService } from "./alert.service";
+import { classifyPilotFeedback } from "./pilotFeedbackClassification";
 
 /**
  * PilotFeedbackSLAService monitors pilot feedback items for SLA violations.
@@ -88,6 +89,10 @@ export class PilotFeedbackSLAService {
               submittedBy: item.submittedBy,
               ageHours,
               slaHours: this.slaHours,
+              classification: classifyPilotFeedback({
+                title: item.title,
+                content: item.content,
+              }),
             },
           );
 
