@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useFreighterIdentity } from "@/hooks/useFreighterIdentity";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { SideNavBar } from "@/components/layout/SideNavBar";
 import { clsx } from "clsx";
 
@@ -15,6 +16,7 @@ interface AppSidebarProps {
 export function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
   const pathname = usePathname();
   const { address, isAuthorized, connectWallet } = useFreighterIdentity();
+  const isAdmin = useIsAdmin();
 
   const hasOwnSidebar = ROUTES_WITH_OWN_SIDEBAR.some(
     (route) => pathname === route || pathname?.startsWith(`${route}/`),
@@ -50,6 +52,7 @@ export function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
           collapsed={false}
           walletAddress={address}
           onClose={onClose}
+          isAdmin={isAdmin}
         />
       </div>
     </>

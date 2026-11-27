@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AdminDashboardFilters } from "../AdminDashboardFilters";
+import { ForbiddenState } from "@/components/ui/ForbiddenState";
 
 interface StreamItem {
   streamId: string;
@@ -27,6 +28,7 @@ export function AdminStreamsView({ filters }: AdminStreamsViewProps) {
   const [streams, setStreams] = useState<StreamItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const limit = 20;
@@ -35,6 +37,7 @@ export function AdminStreamsView({ filters }: AdminStreamsViewProps) {
     const fetchStreams = async () => {
       setLoading(true);
       setError(null);
+      setForbidden(false);
       try {
         // Build query params from filters
         const params = new URLSearchParams();
@@ -51,6 +54,11 @@ export function AdminStreamsView({ filters }: AdminStreamsViewProps) {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });
+
+        if (response.status === 403) {
+          setForbidden(true);
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(`Failed to fetch streams: ${response.statusText}`);
@@ -72,6 +80,17 @@ export function AdminStreamsView({ filters }: AdminStreamsViewProps) {
 
     fetchStreams();
   }, [filters, page]);
+
+  if (forbidden) {
+    return (
+      <div className="py-6">
+        <ForbiddenState
+          title="Admin Access Required"
+          message="You do not have permission to view admin stream records."
+        />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -103,72 +122,74 @@ export function AdminStreamsView({ filters }: AdminStreamsViewProps) {
     );
   }
 
-  if (streams.length === 0) {
-    return (
-      <div className="rounded-lg bg-bg-elevated border border-border-default p-12 text-center">
-        <p className="text-text-secondary">No streams found matching your filters.</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      {/* Streams Table */}
-      <div className="overflow-x-auto rounded-lg border border-border-default">
-        <table className="w-full text-sm">
-          <thead className="bg-bg-elevated border-b border-border-default">
-            <tr>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Stream ID</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Recipient</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Total Vested</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Claimed</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Status</th>
-              <th className="px-4 py-3 text-left font-semibold text-text-secondary">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {streams.map((stream) => (
-              <tr key={stream.streamId} className="border-b border-border-default hover:bg-bg-elevated/50 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-text-primary truncate">{stream.streamId.slice(0, 8)}...</td>
-                <td className="px-4 py-3 font-mono text-xs text-text-secondary truncate">{stream.recipient.slice(0, 6)}...</td>
-                <td className="px-4 py-3 text-text-primary font-semibold">{stream.totalVested}</td>
-                <td className="px-4 py-3 text-text-secondary">{stream.claimed}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-block px-2 py-1 rounded-full text-xs bg-emerald/10 text-emerald">
-                    {stream.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-text-secondary text-xs">
-                  {new Date(stream.createdAt).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-text-secondary">
+          Showing {streams.length} of {total} streams
+        </p>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between py-4">
-        <p className="text-sm text-text-secondary">
-          Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} streams
-        </p>
-        <div className="flex gap-2">
+      {streams.length === 0 ? (
+        <div className="rounded-lg bg-surface-1 border border-border-default p-12 text-center">
+          <p className="text-text-secondary">No streams found matching current filters.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border-default">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-surface-2 text-text-secondary font-medium">
+              <tr>
+                <th className="px-4 py-3">Stream ID</th>
+                <th className="px-4 py-3">Recipient</th>
+                <th className="px-4 py-3">Total Vested</th>
+                <th className="px-4 py-3">Claimed</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Created</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-default">
+              {streams.map((stream) => (
+                <tr key={stream.streamId} className="hover:bg-surface-1/50 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs">{stream.streamId}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{stream.recipient}</td>
+                  <td className="px-4 py-3">{stream.totalVested}</td>
+                  <td className="px-4 py-3">{stream.claimed}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-surface-2 text-text-primary">
+                      {stream.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-text-secondary">
+                    {new Date(stream.createdAt).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {total > limit && (
+        <div className="flex items-center justify-end gap-2 mt-4">
           <button
-            onClick={() => setPage(Math.max(1, page - 1))}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-2 rounded-md border border-border-default text-text-secondary hover:text-text-primary disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+            className="px-3 py-1.5 rounded-md border border-border-default disabled:opacity-40"
           >
-            ← Previous
+            Previous
           </button>
+          <span className="text-sm text-text-secondary">
+            Page {page} of {Math.ceil(total / limit)}
+          </span>
           <button
-            onClick={() => setPage(page + 1)}
-            disabled={page * limit >= total}
-            className="px-3 py-2 rounded-md border border-border-default text-text-secondary hover:text-text-primary disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page >= Math.ceil(total / limit)}
+            className="px-3 py-1.5 rounded-md border border-border-default disabled:opacity-40"
           >
-            Next →
+            Next
           </button>
         </div>
-      </div>
+      )}
     </div>
   );
 }
