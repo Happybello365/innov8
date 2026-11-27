@@ -1,165 +1,147 @@
-# 🌾 innov8: Trust as a Service for Agricultural Products
+# innov8
 
-![Stellar](https://img.shields.io/badge/Network-Stellar-black?style=for-the-badge&logo=stellar)
-![Soroban](<https://img.shields.io/badge/Contracts-Soroban%20(Rust)-orange?style=for-the-badge>)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+### 3. Fees
 
-**innov8** is a decentralized escrow protocol designed to secure agricultural trade across different regions. By leveraging **Soroban Smart Contracts**, Amana eliminates the "Trust Gap" between buyers and sellers, ensuring fair trade even when parties are hundreds of miles apart.
+Fee = `escrowed_value * fee_rate`, rounded per the rules above. Fees are charged on the delivered value, not on the loss.
 
-This is the main repository containing the smart contracts and orchestration logic. Backend, frontend, and mobile applications are maintained in this monorepo for simpler development and unified deployment.
+| Escrowed value | Fee rate | Fee |
+| --- | --- | --- |
+| 10,000 | 0.01 | 100 |
 
----
+- Negative amounts are not expected in settlement output; if produced, they indicate a bug and must fail validation.
+- Rounding must never cause the sum of payouts to exceed the escrowed value; any residual unit is assigned to the platform fee bucket, not duplicated.
 
-## 🚀 The Mission
+### 3. Fees
 
-To provide a programmable safety net for regional commodity trading. Amana ensures that the risk of "sending first" is eliminated, replaced by a secure, neutral vault that only releases funds when delivery is verified.
+Fee = `escrowed_value * fee_rate`, rounded per the rules above. Fees are charged on the delivered value, not on the loss.
 
-## 🛠 Features
+| Escrowed value | Fee rate | Fee |
+| --- | --- | --- |
+| 10,000 | 0.01 | 100 |
+| 10,000 | 0.025 | 250 |
+| 10,000 | 0.00 | 0 |
 
-- **Smart Escrow:** Secure funds holding using cNGN/stablecoins on the Stellar network.
-- **Dynamic Loss Sharing:** Negotiable risk-sharing ratios (e.g., 50/50, 70/30) hardcoded into every trade to handle transit accidents or theft.
-- **Proof-of-Delivery (PoD):** An optional video-based verification protocol involving the buyer and the driver to confirm the state of goods. Video evidence can be submitted and stored on IPFS for dispute resolution.
-- **Volatility Protection:** Utilizes Stellar Path Payments to allow users to pay in local currency (NGN) while locking value in cNGN.
-- **Automated Settlement:** A flat 1% platform fee is automatically deducted upon successful trade completion.
+Edge cases:
 
-## 🏗 Technical Stack
+- Fee rate outside `[0, 1]` is rejected as invalid configuration.
+- A zero fee rate is valid and produces a zero fee.
+- Fees are never charged on the loss portion of a partial delivery.
 
-- **Frontend:** [Next.js](https://nextjs.org/) (App Router)
-- **Smart Contracts:** [Soroban](https://soroban.stellar.org/) (Rust)
-- **Blockchain:** [Stellar Network](https://www.stellar.org/)
-- **Wallet Connection:** [Freighter](https://www.freighter.app/) / [Albedo](https://albedo.link/)
-- **Storage:** IPFS (via Pinata) for decentralized storage of video evidence.
-- **Database:** Supabase (Off-chain metadata, driver logs, and user profiles).
-- **Observability:** OpenTelemetry distributed tracing with correlation IDs for end-to-end request tracking.
+### 4. Partial delivery outcomes
 
-## 🧪 Local Environments (Folder-Based)
+When only part of a delivery is fulfilled, the escrow splits into delivered value, loss, and fee.
 
-- `frontend/` → Next.js app environment (UI + wallet + Supabase/Pinata client integration)
-- `backend/` → Node.js/TypeScript API environment (Supabase + Pinata + integration endpoints)
-- `mobile/` → React Native Expo environment (mobile wallet, notification, and trade UX)
-- `contracts/` → Rust/Soroban smart contract environment
+Example: escrowed value `10,000`, delivered `6,000`, loss `4,000`, fee rate `0.01`.
 
-### Frontend setup
+| Bucket | Calculation | Amount |
+| --- | --- | --- |
+| Delivered value | given | 6,000 |
+| Loss | given | 4,000 |
+| Fee | 6,000 * 0.01 | 60 |
+| Farmer payout | 6,000 - 60 | 5,940 |
+| Buyer refund | 4,000 | 4,000 |
 
-1. `cd frontend`
-2. `cp .env.example .env.local`
-3. `npm install`
-4. `npm run dev`
+Edge cases:
 
-### Backend setup
+- Delivered `0` (total loss): farmer payout `0`, fee `0`, buyer refund equals escrowed value.
+- Delivered equals escrowed value (full delivery): loss `0`, fee charged on full value, buyer refund `0`.
+- Delivered plus loss must equal escrowed value; any mismatch fails validation before settlement.
+- Failure states (invalid inputs, mismatched totals, out-of-range fee rates) must reject the settlement and leave escrow unchanged; no partial payouts are emitted.
 
-1. `cd backend`
-2. `cp .env.example .env`
-3. `cp .env.tracing.example .env.tracing` (for distributed tracing configuration)
-4. `npm install`
-5. `npm run dev`
+### 5. Failure states summary
 
-### Mobile setup
+| Condition | Outcome |
+| --- | --- |
+| Escrowed value `0` | Rejected |
+| Loss > escrowed value | Rejected |
+| Fee rate outside `[0, 1]` | Rejected |
+| Delivered + loss != escrowed value | Rejected |
+| Negative payout | Rejected |
 
-1. `cd mobile`
-2. `cp .env.example .env.local`
-3. `npm install`
-4. `npm start`
+Rejected settlements must not leak party identifiers or amounts in error messages beyond what the caller already supplied.
 
-### Backend API docs
+### Troubleshooting
 
-- Source of truth: `backend/src/docs/openapi.yaml`
-- Dev Swagger UI: `http://localhost:4000/api/docs`
-- JSON export: `http://localhost:4000/api/docs/openapi.json`
+- **Port already in use**: change `API_PORT`/`WEB_PORT` in your `.env` and restart the affected service.
+- **Supabase keys missing**: re-run `supabase status` to print local keys.
+- **Mobile cannot reach backend**: use the host LAN IP and confirm the firewall allows the API port.
+- **Tracing warnings**: verify the collector is running at `OTEL_EXPORTER_OTLP_ENDPOINT`; absence of tracing does not affect functionality.
 
-The backend writes `backend/src/docs/openapi.json` from the YAML spec in non-production runs so reviewers can inspect either format.
+## Architecture ownership map
 
-### Contracts setup
+Each area of the platform has a named owner role and an escalation path. The canonical, up-to-date map lives in [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md); this section is a summary so the map is discoverable from the main workflow.
 
-1. `cd contracts/amana_escrow`
-2. `cargo build`
+| Area | Primary owner role | Backup | Escalation |
+| --- | --- | --- | --- |
+| Backend (`apps/api`) | Backend lead | Backend on-call | Security lead, then platform on-call |
+| Frontend (`apps/web`) | Frontend lead | Frontend on-call | Security lead, then platform on-call |
+| Mobile (`apps/mobile`) | Mobile lead | Mobile on-call | Security lead, then platform on-call |
+| Smart contracts | Contracts lead | Contracts reviewer | Security lead, then platform on-call |
 
-## 🔒 Required PR CI Gates
+Escalation tiers:
 
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
+1. **Primary owner** — first responder for changes, reviews, and incidents in the area.
+2. **Backup / secondary** — takes over when the primary is unavailable.
+3. **Security / on-call** — escalate security-sensitive issues (key handling, authorization, contract upgrades) to the security lead, and production incidents to the platform on-call.
 
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobil
-Amana enforces stack-level CI gates on pull requests through `.github/workflows/ci.yml`.
+Contact owners through the team's existing channels (issue tracker, team chat, and on-call rotation). Do not embed personal contact details, secrets, or PII in this repository; keep rosters in the private team directory and reference roles here.
 
-- **Frontend Required Gate**: `npm ci`, `npm run lint`, `npm run build`, `npm test` in `frontend/`
-- **Backend Required Gate**: `npm ci`, `npm run build`, `npm test` in `backend/`
-- **Mobile Required Gate**: `npm ci`, `npm run type-check`, `npm run lint` in `mobile/`
-- **Contracts Required Gate**: `cargo test` in `contracts/amana_escrow/`
+To update the map, edit `docs/OWNERSHIP.md` and keep this summary table in sync. Ownership changes should be reviewed like any other documentation change.
 
-Path-aware execution is enabled to avoid unnecessary runtime. If a stack has no changed files, the gate reports a skip-note and passes.
+## Release notes generation guide
 
-### Branch protection setup (GitHub)
+Release notes are generated automatically from **reviewed and merged** pull requests. This section defines the changelog categories, how PR labels map to them, and which PRs are included or excluded so contributors can predict what ships in each release.
 
-For the protected branch (`main`), set these required status checks:
+### Changelog categories
 
-- `Frontend Required Gate`
-- `Backend Required Gate`
-- `Contracts Required Gate`
+Every release note entry is grouped under one of the following categories, in this order:
 
----
+| Category | Meaning | Typical PR label |
+| --- | --- | --- |
+| **Added** | New features or capabilities | `feature`, `enhancement` |
+| **Changed** | Changes to existing behavior | `change`, `refactor` |
+| **Fixed** | Bug fixes | `bug`, `fix` |
+| **Security** | Security-relevant fixes or hardening | `security` |
+| **Deprecated** | Features slated for removal | `deprecation` |
+| **Removed** | Features or APIs removed | `removal` |
 
----
+A PR is placed in the category matching its label. If a PR carries multiple category labels, it appears under each matching category. PRs without a recognized category label are grouped under **Changed** so nothing merged is silently dropped.
 
-## 🔄 How It Works (The Amana Flow)
+### Inclusion and exclusion rules
 
-1. **Initiate:** The Seller lists products. The Buyer initiates a trade, depositing funds that are converted to cNGN via a Stellar Path Payment.
-2. **Lock:** The Smart Contract locks the funds and stores the agreed-upon `Loss_Ratio`.
-3. **Dispatch:** The Seller provides the driver's name, phone number, and vehicle manifest.
-4. **Verification:** - **Success:** Buyer receives goods and uploads a confirmation video. Funds release to Seller.
-   - **Dispute:** Buyer uploads a video of loss/damage with driver affirmation. A mediator reviews the evidence.
-5. **Settlement:** Based on the outcome, funds are distributed (either 100% to one party or split via the `Loss_Ratio`).
+Included:
 
----
+- Pull requests that are **merged** into the release branch and have passed review.
+- PRs with a recognized category label (see table above).
 
-## 🗺 Roadmap
+Excluded:
 
-### Phase 1: The Vault (MVP)
+- Open, draft, or closed-but-unmerged PRs.
+- PRs labeled `skip-changelog` (for example, internal chores or CI-only changes).
+- Automated dependency bumps labeled `dependencies` unless they also carry a category label.
 
-- [x] Develop core Soroban contract logic (`deposit`, `release`, `refund`).
-- [x] Implement basic Next.js UI for trade creation.
+### Automation workflow
 
-### Phase 2: The Agreement Engine
+1. Contributors label their PR with exactly one category label from the table above (plus `skip-changelog` when the change should not appear in release notes).
+2. On merge to the release branch, the release automation collects merged PRs since the previous release tag.
+3. Each PR is mapped to its category and rendered as a bullet with the PR title and number.
+4. The generated notes are attached to the release draft for maintainer review before publishing.
 
-- [x] Integrate `Loss_Ratio` variables into the smart contract.
-- [x] Build the "Mediator" dashboard for dispute resolution.
+### Configuration
 
-### Phase 3: Evidence & Logistics
+- **Category labels**: the label names in the table above are the source of truth; renaming a label requires updating this guide and the release automation config together.
+- **Exclusion label**: `skip-changelog` removes a merged PR from generated notes.
+- **Release branch**: notes are generated from merges into the release branch; PRs merged only to feature branches are not included until they reach the release branch.
 
-- [x] IPFS integration for video evidence uploads.
-- [x] Driver manifest logging and tracking interface.
+Keep this guide in sync with the release automation configuration whenever labels or inclusion rules change.
 
-### Phase 4: Mainnet & Scale
+## Mobile network state action guards
 
-- [ ] Public pilot program with regional agricultural cooperatives.
-- [x] Implementation of a "Trust Score" reputation system.
+The mobile app must not silently fail or queue unsupported work while the device is offline.
 
----
-
-## 🔍 Distributed Tracing
-
-Amana includes comprehensive distributed tracing with OpenTelemetry for end-to-end request visibility and faster incident triage.
-
-### Features
-
-- **Correlation IDs**: Unique identifiers spanning frontend-backend requests
-- **Request Tracing**: Complete request lifecycle tracking
-- **Service Integration**: Automatic tracing for external services (IPFS, Stellar)
-- **Observability**: Jaeger, Zipkin, and Prometheus integration
-
-### Quick Start
-
-1. Configure tracing environment variables (see `backend/.env.tracing.example`)
-2. Start Jaeger for trace visualization: `docker run -p 16686:16686 jaegertracing/all-in-one`
-3. View traces at `http://localhost:16686`
-4. Check metrics at `http://localhost:9464/metrics`
-
-### Documentation
-
-See [DISTRIBUTED_TRACING_GUIDE.md](./DISTRIBUTED_TRACING_GUIDE.md) for detailed setup and usage instructions.
-
----
+- Network-dependent actions (submitting escrow transactions, syncing, uploading evidence) are **disabled** while offline and surface an inline explanation to the user.
+- Only actions explicitly marked as offline-queueable are queued; all other actions are blocked with a clear message until connectivity returns.
+- When connectivity is restored, queued work is flushed and any failures are reported without leaking secrets or PII.
 
 ## 📐 Architecture Decision Records
 
@@ -175,33 +157,38 @@ Key architectural decisions are documented as ADRs in [`docs/adr/`](./docs/adr):
 
 - [Security Policy](./SECURITY.md) — privately report vulnerabilities through GitHub's private vulnerability reporting.
 - [Threat Model](./docs/threat-model.md) — reviewed quarterly and on trigger events; see §8 for cadence/ownership and `docs/threat-model-review-checklist.md` for the reviewer checklist.
-- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders are opened automatically by [`.github/workflows/secrets-rotation-reminder.yml`](./.github/workflows/secrets-rotation-reminder.yml).
-- [PII Encryption at Rest](./docs/pii-encryption.md) — classified PII column inventory, app-layer envelope encryption design, blind-index search, key rotation procedure, and decrypt access logging.
-- [Software Bill of Materials (SBOM)](./docs/sbom.md) — CycloneDX SBOM generated for every release artifact via [`.github/workflows/sbom.yml`](./.github/workflows/sbom.yml), attached to GitHub Releases, with a weekly vulnerability diff scan.
-- [Golden Signals Dashboard](./docs/dashboards.md) — Grafana dashboard stored as code ([`infra/grafana/`](./infra/grafana)) covering API latency/traffic/errors and DB/queue saturation, with deploy annotations wired into staging deploys.
-- [Alert Routing Policy](./docs/alert-routing-policy.md) — page-vs-ticket severity rubric, runbook linkage enforced in CI, per-alert dedup windows, and the [monthly alert review log](./docs/alert-review-log.md).
-- [Synthetic Probes Policy](./docs/synthetic-probes-policy.md) — hourly staging probe of the core escrow journey (auth → create → deposit → release), with failure alerting and a results dashboard log.
-- [Incident Response](./docs/runbooks/incident-response.md) — severity levels, incident roles, and channel/ticket conventions; see the [postmortem template](./docs/runbooks/postmortem-template.md), the [postmortem archive](./docs/postmortems/README.md), and a worked [tabletop exercise](./docs/runbooks/tabletop-exercise-escrow-drain.md).
+- [Secrets Policy & Rotation](./docs/secrets-policy.md) — secrets inventory (owner, location, max-age), rotation automation, and verification. Rotation reminders
 
-## 🤝 Contributing
+### Security Disclosure Triage SLA
 
-innov8 is an open-source project aimed at improving food security and trade efficiency. We welcome developers, designers, and agricultural experts!
+Vulnerability reports are handled under the timelines below. All times are measured from the moment a report is received through GitHub's private vulnerability reporting channel described in [SECURITY.md](./SECURITY.md). Reports are triaged by the security maintainers on rotation; the reporter is kept informed at each stage.
 
-1. Fork the Project.
-2. Create your Feature Branch (`git checkout -b feature/NewFeature`).
-3. Commit your Changes (`git commit -m 'Add NewFeature'`).
-4. Push to the Branch (`git push origin feature/NewFeature`).
-5. Open a Pull Request.
+#### Severity tiers and SLA targets
 
-### Admin route development
+| Tier | Definition (examples) | Acknowledgement | Initial response / triage | Remediation target | Public disclosure |
+| --- | --- | --- | --- | --- | --- |
+| **Critical** | Loss of escrowed funds, contract authorization bypass, private key or secret exposure | ≤ 24 hours | ≤ 48 hours | ≤ 7 days | Coordinated, ≤ 7 days after fix ships |
+| **High** | Privilege escalation, replay of settlement/webhook events, PII exposure | ≤ 48 hours | ≤ 3 business days | ≤ 14 days | Coordinated, ≤ 14 days after fix ships |
+| **Medium** | Denial of service, information disclosure without PII, misconfiguration | ≤ 3 business days | ≤ 5 business days | ≤ 30 days | Coordinated, ≤ 30 days after fix ships |
+| **Low** | Hardening, defense-in-depth, documentation gaps | ≤ 5 business days | ≤ 10 business days | Next scheduled release | Coordinated with the reporter |
 
-If you are adding or modifying admin routes, see the
-[Admin Route Contribution Guide](./docs/admin-route-contribution-guide.md)
-for architecture details, middleware requirements, testing expectations, and a
-step-by-step example.
+- **Acknowledgement** confirms receipt and assigns a tracking ID; it does not imply a confirmed severity.
+- **Initial response / triage** includes a severity assessment, affected components, and a remediation plan.
+- **Remediation target** is the goal for a fix merged to `main`; complex fixes may be re-scoped with the reporter and documented in the advisory.
+- **Public disclosure** is coordinated with the reporter and published as a GitHub Security Advisory once a fix is available. Reporters may request earlier disclosure; we will not publish before a fix or mitigation is available unless the reporter and maintainers agree.
 
-## 📄 License
+#### Edge cases and failure states
 
-Distributed under the MIT License. See `LICENSE` for more information.
+- **Disputed severity:** If the reporter and maintainers disagree on severity, the higher tier's acknowledgement and response targets apply until consensus is reached. The rationale is recorded in the advisory.
+- **Incomplete reports:** Reports missing reproduction steps or affected versions are acknowledged within the tier target and the reporter is asked for the missing details. The triage clock pauses while awaiting the reporter; if no response is received within 14 days, the report is closed as `needs-info` and may be reopened.
+- **Third-party dependencies:** Issues in upstream dependencies (Stellar/Soroban, Next.js, Supabase, Pinata, etc.) are triaged by us, then reported upstream. Our remediation target covers applying the upstream fix or a documented mitigation; disclosure follows the upstream advisory timeline.
+- **Actively exploited issues:** Any report indicating active exploitation is escalated to Critical regardless of initial tier, and mitigation is prioritized over the standard remediation target.
+- **No PII or secrets in reports:** Do not include private keys, credentials, or personal data in reports or advisories. Redact sensitive values and share them only through the private reporting channel.
 
-// setting up and starting out
+#### Tracking and verification
+
+- Each report is tracked as a private security advisory with the assigned tier and due dates.
+- SLA adherence is reviewed at each security maintainer rotation handoff; breaches are recorded with a root-cause note.
+- Fixes ship with regression tests covering the reported failure path before the advisory is published.
+
+See the mobile stack documentation for the list of supported offline-queueable actions.

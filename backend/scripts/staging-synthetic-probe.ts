@@ -15,6 +15,12 @@
  *   STELLAR_RPC_URL=https://soroban-testnet.stellar.org \
  *   npx tsx scripts/staging-synthetic-probe.ts
  *
+ * Dispute journey (#565, opt-in): set SYNTHETIC_PROBE_DISPUTE=1 together with
+ * SYNTHETIC_PROBE_MEDIATOR_SECRET. After the trade is FUNDED the probe runs
+ * buyer dispute -> mediator lists/requests buyer evidence -> UNDER_REVIEW ->
+ * RESOLVED, then checks the settlement outcome on the trade. The happy-path
+ * confirm/release steps are replaced by these steps in that mode.
+ *
  * Exit codes:
  *   0 — every step of the journey succeeded
  *   1 — a step failed (see stdout for which one and the category)
@@ -26,6 +32,7 @@
 
 import { appendFileSync } from "fs";
 import * as StellarSdk from "@stellar/stellar-sdk";
+import { findDisputeIdForTrade, SETTLEMENT_OUTCOME_STATUSES } from "./lib/synthetic-dispute";
 
 type StepCategory = "infra" | "app";
 
@@ -50,6 +57,15 @@ if (!buyerSecret || !sellerSecret) {
     "SYNTHETIC_PROBE_BUYER_SECRET and SYNTHETIC_PROBE_SELLER_SECRET must both be set " +
       "(dedicated low-value testnet accounts — see docs/synthetic-probes-policy.md#accounts).",
   );
+  process.exit(1);
+}
+
+const DISPUTE_JOURNEY = process.env.SYNTHETIC_PROBE_DISPUTE === "1";
+const mediatorSecret = process.env.SYNTHETIC_PROBE_MEDIATOR_SECRET;
+const DISPUTE_CATEGORY = process.env.SYNTHETIC_PROBE_DISPUTE_CATEGORY || "non_delivery";
+
+if (DISPUTE_JOURNEY && !mediatorSecret) {
+  console.error("SYNTHETIC_PROBE_DISPUTE=1 requires SYNTHETIC_PROBE_MEDIATOR_SECRET (see docs/synthetic-probes-policy.md#dispute-journey).");
   process.exit(1);
 }
 
@@ -106,6 +122,80 @@ async function authenticate(keypair: StellarSdk.Keypair): Promise<string> {
   }
   const { token } = (await verifyRes.json()) as { token: string };
   return token;
+}
+
+async function authenticateMediator(): Promise<string> {
+  return authenticate(StellarSdk.Keypair.fromSecret(mediatorSecret as string));
+}
+
+async function postJson(url: string, token: string, body: unknown, label: string) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${label} returned HTTP ${res.status}`);
+  return res;
+}
+
+async function runDisputeJourney(tradeId: string, buyerToken: string, sellerToken: string) {
+  await step("dispute: buyer opens dispute", "app", () =>
+    postJson(
+      `${STAGING_URL}/trades/${tradeId}/dispute`,
+      buyerToken,
+      {
+        reason: "synthetic probe dispute - safe to ignore",
+        category: DISPUTE_CATEGORY,
+      },
+      "POST /trades/:id/dispute",
+    ),
+  );
+
+  const mediatorToken = await step("auth: mediator challenge/verify", "infra", authenticateMediator);
+
+  const disputeId = await step("dispute: mediator locates dispute", "app", async () => {
+    const res = await fetch(`${STAGING_URL}/disputes`, {
+      headers: { Authorization: `Bearer ${mediatorToken}` },
+    });
+    if (!res.ok) throw new Error(`GET /disputes returned HTTP ${res.status}`);
+    return findDisputeIdForTrade(await res.json(), tradeId);
+  });
+
+  await step("dispute: buyer evidence requested", "app", () =>
+    postJson(
+      `${STAGING_URL}/disputes/${disputeId}/evidence-requests`,
+      mediatorToken,
+      {
+        party: "buyer",
+        message: "synthetic probe evidence request - safe to ignore",
+        dueAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      },
+      "POST /disputes/:id/evidence-requests",
+    ),
+  );
+
+  await step("dispute: transition UNDER_REVIEW", "app", () =>
+    postJson(`${STAGING_URL}/disputes/${disputeId}/transition`, mediatorToken, { status: "UNDER_REVIEW" }, "POST /disputes/:id/transition"),
+  );
+
+  await step("dispute: transition RESOLVED", "app", () =>
+    postJson(`${STAGING_URL}/disputes/${disputeId}/transition`, mediatorToken, { status: "RESOLVED" }, "POST /disputes/:id/transition"),
+  );
+
+  await step("settlement: trade outcome after resolution", "app", async () => {
+    const deadline = Date.now() + 60_000;
+    let status: string | undefined;
+    while (Date.now() < deadline) {
+      const res = await fetch(`${STAGING_URL}/trades/${tradeId}`, {
+        headers: { Authorization: `Bearer ${sellerToken}` },
+      });
+      if (!res.ok) throw new Error(`GET /trades/:id returned HTTP ${res.status}`);
+      status = ((await res.json()) as { status?: string }).status;
+      if (status && (SETTLEMENT_OUTCOME_STATUSES as readonly string[]).includes(status)) return status;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    throw new Error(`Trade settlement outcome not reached (last seen: ${status})`);
+  });
 }
 
 async function main() {
@@ -197,6 +287,13 @@ async function main() {
   });
 
   const sellerToken = await step("auth: seller challenge/verify", "infra", () => authenticate(sellerKeypair));
+
+  if (DISPUTE_JOURNEY) {
+    await runDisputeJourney(tradeId, buyerToken, sellerToken);
+    console.log("");
+    console.log("All synthetic dispute journey steps passed.");
+    return;
+  }
 
   await step("trade: confirm delivery", "app", async () => {
     const res = await fetch(`${STAGING_URL}/trades/${tradeId}/confirm`, {

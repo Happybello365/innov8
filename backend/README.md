@@ -47,3 +47,4 @@ CI gate for the backend stack.
 If the fuzz suite surfaces a cross-tenant leak, treat it as a security issue:
 do not include tenant data, secrets, or PII in the report. Reference the failing
 resource type and the assertion that failed only.
+

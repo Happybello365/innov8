@@ -5,6 +5,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { useOfflineQueueStore } from "@/stores/offlineQueueStore";
 import { useToast } from "@/hooks/useToast";
 import { request } from "@/lib/api/client";
+import { QueuedActionsSummary } from "@/components/ui/QueuedActionsSummary";
 
 export function ConnectivityBanner() {
   const { isOffline, wasOffline, retryOnline } = useOffline();
@@ -57,9 +58,7 @@ export function ConnectivityBanner() {
       <div role="status" aria-live="polite" className="fixed top-0 left-0 right-0 z-[100] bg-status-warning text-text-inverse px-4 py-2 text-sm text-center flex items-center justify-center gap-3">
         <span aria-hidden>●</span>
         <span>You’re offline — actions will be queued and sent when reconnected.</span>
-        {queue.length > 0 && (
-          <span className="bg-white/20 rounded-full px-2 py-0.5 text-xs font-semibold">{queue.length} pending</span>
-        )}
+        <QueuedActionsSummary queue={queue} />{/* queued locally; never claims submission */}
         <button
           onClick={() => void retryOnline()}
           className="ml-2 underline hover:no-underline focus-visible:outline-2 focus-visible:outline-white rounded px-1"
