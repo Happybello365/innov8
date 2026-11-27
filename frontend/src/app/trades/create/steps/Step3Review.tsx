@@ -24,6 +24,8 @@ import { useToast, TOAST_CONTRACT } from "@/hooks/useToast";
 import { shouldDedup, registerAction } from "@/lib/actionDedup";
 import { generateIdempotencyKey } from "@/lib/idempotency";
 import { saveTemplate } from "@/lib/tradeTemplates";
+import { usePathPaymentQuote } from "@/hooks/usePathPaymentQuote";
+import { ConversionPreview } from "@/components/trade/ConversionPreview";
 import { useWalletGuard } from "@/hooks/useWalletGuard";
 
 type Row = { label: string; value: string };
@@ -164,6 +166,21 @@ export default function Step3Review() {
 
   const amountUsdc = !isNaN(rawAmount) && rawAmount > 0 ? rawAmount.toFixed(7) : "0";
 
+  // ── Path-payment conversion preview (issues #490 + #491) ──────────────────
+  const sourceAmountNgn =
+    !isNaN(rawAmount) && rawAmount > 0 ? String(rawAmount) : "";
+  const {
+    quote,
+    status: quoteStatus,
+    errorMessage: quoteError,
+    secondsRemaining,
+    refresh: refreshQuote,
+  } = usePathPaymentQuote(sourceAmountNgn, token ?? null);
+
+  /** Block submission when the quote is stale so the user must refresh first. */
+  const isQuoteStale = quoteStatus === "stale";
+  // ─────────────────────────────────────────────────────────────────────────
+
   const isAddressValid =
     data.sellerAddress !== "" &&
     StrKey.isValidEd25519PublicKey(data.sellerAddress.trim());
@@ -174,6 +191,9 @@ export default function Step3Review() {
     !isNaN(rawAmount) && rawAmount > 0 &&
     isAddressValid &&
     data.buyerRatio + data.sellerRatio === 100;
+
+  /** Submission is blocked while the quote is stale — user must refresh. */
+  const canSubmit = isFormValid && !isQuoteStale;
 
   const buyerLossBps = Math.round(data.buyerRatio * 100);
   const sellerLossBps = Math.round(data.sellerRatio * 100);
@@ -195,6 +215,11 @@ export default function Step3Review() {
 
     if (!isFormValid) {
       setError("Please complete all required fields with valid values before submitting.");
+      return;
+    }
+
+    if (isQuoteStale) {
+      setError("The conversion quote has expired. Please refresh the quote before submitting.");
       return;
     }
 
@@ -403,6 +428,16 @@ export default function Step3Review() {
 
       <SaveAsTemplate />
 
+      {/* Path-payment conversion preview and stale-quote warning (#490, #491) */}
+      <ConversionPreview
+        sourceAmountNgn={sourceAmountNgn}
+        quote={quote}
+        status={quoteStatus}
+        errorMessage={quoteError}
+        secondsRemaining={secondsRemaining}
+        onRefresh={refreshQuote}
+      />
+
       <div className="rounded-lg bg-gold-muted border border-gold/20 px-4 py-3 text-sm text-gold">
         By submitting, you authorize a Stellar transaction to create an escrow trade,
         locking {amountUsdc} cNGN in the innov8 escrow contract.
@@ -491,8 +526,10 @@ export default function Step3Review() {
           Back
         </button>
         <button
-          disabled={loading || !isFormValid}
+          disabled={loading || !canSubmit}
           onClick={() => setShowDisclaimer(true)}
+          className="flex-1 h-12 rounded-full bg-gradient-gold-cta text-text-inverse font-semibold disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          title={isQuoteStale ? "Refresh the quote before submitting" : undefined}
           className="flex-1 h-12 rounded-full bg-gradient-gold-cta text-text-inverse font-semibold disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
           aria-label={loading ? "Creating trade, please wait" : "Lock funds and create trade"}
         >

@@ -14,6 +14,8 @@ export { TradeListItem } from "./TradeListItem";
 export type { TradeListItemProps } from "./TradeListItem";
 export { DisputeVerificationModal } from "./DisputeVerificationModal";
 export type { DisputeVerificationModalProps } from "./DisputeVerificationModal";
+export { ConversionPreview } from "./ConversionPreview";
+export type { ConversionPreviewProps } from "./ConversionPreview";
 export { DisputeTimeline } from "./DisputeTimeline";
 export type { DisputeTimelineProps, DisputeTimelineEvent } from "./DisputeTimeline";
 export { LossRatioExplanation } from "./LossRatioExplanation";
