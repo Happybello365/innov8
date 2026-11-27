@@ -1,6 +1,10 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 
-import { adminErrorResponseErrorInterceptor } from './errorInterceptor';
+import {
+  adminErrorResponseErrorInterceptor,
+  isSessionRevokedError,
+} from './errorInterceptor';
+import type { RawBackendErrorBody } from './errors';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -63,6 +67,16 @@ type LogoutHandler = () => void | Promise<void>;
 let refreshHandler: RefreshHandler | null = null;
 let logoutHandler: LogoutHandler | null = null;
 let refreshPromise: Promise<string | null> | null = null;
+let sessionRevokedHandler: LogoutHandler | null = null;
+
+/**
+ * Register the callback that clears local access when the server reports a
+ * revoked session (#515). Kept separate from the refresh/logout pair so that
+ * ordinary 401s keep their existing behaviour.
+ */
+export function setSessionRevokedHandler(handler: LogoutHandler | null): void {
+  sessionRevokedHandler = handler;
+}
 
 /** Register the auth store's refresh + logout callbacks. */
 export function setAuthRefreshHandlers(handlers: {
@@ -100,6 +114,17 @@ async function refreshAccessToken(): Promise<string | null> {
 
 async function handleUnauthorized(error: AxiosError): Promise<unknown> {
   const config = error.config as RetryableConfig | undefined;
+
+  // A revoked session cannot be refreshed. Clear local access straight away
+  // and do not replay the request.
+  if (isSessionRevokedError(error)) {
+    try {
+      await sessionRevokedHandler?.();
+    } catch {
+      // Clearing is best-effort; the request still fails below.
+    }
+    return adminErrorResponseErrorInterceptor(error as AxiosError<RawBackendErrorBody>);
+  }
 
   // Only retry once, and never retry the refresh call itself.
   if (!config || config._retry || !refreshHandler) {

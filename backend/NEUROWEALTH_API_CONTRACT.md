@@ -11,6 +11,66 @@ https://api.amana.com  # Production
 http://localhost:4000  # Development
 ```
 
+## API Versioning
+
+### Versioning Scheme
+
+The public API is versioned in the URL path using a major version prefix:
+
+```
+/api/v1/trades
+/api/v2/trades
+```
+
+- Only the **major** version appears in the path. Minor and patch changes are backward compatible and are released without a new path segment.
+- The current stable version is **v1**. Unversioned legacy paths (e.g. `/trades`) are treated as aliases of `v1` and will be removed no earlier than the v1 sunset date.
+- The version is also echoed in the `x-api-version` response header so clients can confirm which contract served the request.
+
+### Backward Compatibility Guarantees
+
+Within a major version, the following changes are **non-breaking** and may ship at any time:
+
+- Adding new optional request fields or query parameters.
+- Adding new response fields (clients MUST ignore unknown fields).
+- Adding new enum values to status fields (clients MUST tolerate unknown enum values).
+- Adding new endpoints.
+- Relaxing validation constraints.
+
+The following changes are **breaking** and require a new major version:
+
+- Removing or renaming a field, endpoint, or enum value.
+- Changing a field's type, format, or units.
+- Making an optional field required, or tightening validation.
+- Changing authentication/authorization requirements or error status codes for existing flows.
+- Changing default values in a way that alters observable behavior.
+
+### Deprecation Lifecycle
+
+When a breaking change is required, the old behavior follows this lifecycle:
+
+1. **Announce** — the deprecation is documented in this file and in the changelog, with a target sunset date.
+2. **Signal** — deprecated endpoints/fields return the following response headers:
+   ```
+   Deprecation: true
+   Sunset: Sat, 01 Jan 2027 00:00:00 GMT
+   Link: <https://docs.amana.com/api/v2>; rel="successor-version"
+   ```
+3. **Coexist** — the old and new major versions run in parallel for a minimum of **180 days** (or longer for contract-affecting changes).
+4. **Sunset** — after the sunset date the deprecated version returns `410 Gone` with a JSON body pointing to the successor version.
+
+### Migration Rules
+
+- Clients SHOULD pin to a major version path and MUST NOT depend on unversioned aliases in production.
+- Clients MUST ignore unknown response fields and unknown enum values to remain forward compatible.
+- When migrating, update the base path, review the changelog for breaking changes, and re-run integration tests against the new version before switching traffic.
+- Contract (Soroban) changes that affect storage layout, events, or ABI are called out explicitly in the changelog and follow the same deprecation window.
+
+### Failure States
+
+- Requests to an unknown major version return `404 Not Found` with `{"error": "unknown_api_version"}`.
+- Requests to a sunset version return `410 Gone` with `{"error": "api_version_sunset", "successor": "/api/v2"}`.
+- Error responses never include secrets, tokens, or PII; only stable machine-readable error codes and human-readable messages are returned.
+
 ## Authentication
 
 ### JWT Bearer Token
@@ -390,373 +450,4 @@ Content-Disposition: attachment; filename="evidence-trade-123.mp4"
 
 #### GET /trades/:id/history - Trade Audit Trail
 
-Retrieve immutable audit trail of all trade state changes.
-
-**Authentication:** Required
-
-**Path Parameters:**
-
-- `id` (string, required): Trade ID
-
-**Query Parameters:**
-
-```
-GET /trades/:id/history?limit=50&offset=0&action=STATUS_CHANGE
-```
-
-- `limit` (number, optional, default: 50): Max items
-- `offset` (number, optional, default: 0): Pagination offset
-- `action` (string, optional): Filter by action type
-
-**Response (200 OK):**
-
-```json
-{
-  "tradeId": "trade-uuid-123",
-  "entries": [
-    {
-      "id": "audit-entry-1",
-      "action": "TRADE_CREATED",
-      "actor": "GXXXXXXX...",
-      "changes": {
-        "before": null,
-        "after": { "status": "PENDING_SIGNATURE" }
-      },
-      "timestamp": "2026-06-24T10:30:00Z",
-      "signature": "base64-ed25519-signature"
-    },
-    {
-      "id": "audit-entry-2",
-      "action": "DEPOSIT_CONFIRMED",
-      "actor": "GXXXXXXX...",
-      "changes": {
-        "before": { "status": "PENDING_DEPOSIT" },
-        "after": { "status": "FUNDED" }
-      },
-      "timestamp": "2026-06-24T10:35:00Z",
-      "signature": "base64-ed25519-signature"
-    }
-  ],
-  "pagination": {
-    "offset": 0,
-    "limit": 50,
-    "total": 5
-  }
-}
-```
-
----
-
-### Disputes
-
-#### GET /disputes - List Disputes
-
-Retrieve disputes for the authenticated user.
-
-**Authentication:** Required
-
-**Query Parameters:**
-
-```
-GET /disputes?status=OPEN&page=1&limit=20
-```
-
-- `status` (string, optional): Filter by status (OPEN, PENDING_RESOLUTION, RESOLVED, DISMISSED)
-- `page` (number, optional): Page number
-- `limit` (number, optional): Items per page
-
-**Response (200 OK):**
-
-```json
-{
-  "data": [
-    {
-      "id": "dispute-uuid-456",
-      "tradeId": "trade-uuid-123",
-      "initiatedBy": "GXXXXXXX...",
-      "reason": "Goods did not match specification",
-      "category": "product_quality",
-      "status": "OPEN",
-      "createdAt": "2026-06-24T11:15:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 3
-  }
-}
-```
-
----
-
-#### GET /dispute-categories - List Dispute Categories
-
-Retrieve predefined dispute categories.
-
-**Authentication:** Optional
-
-**Response (200 OK):**
-
-```json
-{
-  "categories": [
-    {
-      "id": 1,
-      "name": "product_quality",
-      "description": "Product does not meet specified quality standards"
-    },
-    {
-      "id": 2,
-      "name": "delivery_delay",
-      "description": "Delivery was delayed beyond agreed timeframe"
-    },
-    {
-      "id": 3,
-      "name": "quantity_mismatch",
-      "description": "Delivered quantity does not match order"
-    },
-    {
-      "id": 4,
-      "name": "damage",
-      "description": "Product was damaged during delivery"
-    }
-  ]
-}
-```
-
----
-
-## Error Response Format
-
-All errors follow a consistent JSON schema:
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid request parameters",
-    "statusCode": 400,
-    "correlationId": "12345678-1234-5678-1234-567812345678",
-    "requestId": "87654321-4321-8765-4321-876543218765",
-    "details": [
-      {
-        "field": "amountUsdc",
-        "issue": "Invalid amount format",
-        "value": "abc.xyz"
-      }
-    ],
-    "timestamp": "2026-06-24T10:30:00Z"
-  }
-}
-```
-
-### Error Codes
-
-| Code                    | HTTP Status | Description                                                 |
-| ----------------------- | ----------- | ----------------------------------------------------------- |
-| `VALIDATION_ERROR`      | 400         | Request validation failed                                   |
-| `UNAUTHORIZED`          | 401         | Missing or invalid authentication                           |
-| `FORBIDDEN`             | 403         | User lacks permission for this resource                     |
-| `NOT_FOUND`             | 404         | Resource does not exist                                     |
-| `CONFLICT`              | 409         | Resource state conflict (e.g., duplicate trade)             |
-| `RATE_LIMIT_EXCEEDED`   | 429         | Too many requests in time window                            |
-| `INTERNAL_SERVER_ERROR` | 500         | Unexpected server error                                     |
-| `SERVICE_UNAVAILABLE`   | 503         | External service (blockchain, IPFS) temporarily unavailable |
-| `STELLAR_RPC_ERROR`     | 502         | Stellar/Soroban RPC call failed                             |
-| `CONTRACT_ERROR`        | 400         | Smart contract execution failed                             |
-| `IPFS_ERROR`            | 503         | IPFS upload/retrieval failed                                |
-
-### Common Error Responses
-
-**401 Unauthorized:**
-
-```json
-{
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Invalid or expired JWT token",
-    "statusCode": 401,
-    "correlationId": "12345678-1234-5678-1234-567812345678"
-  }
-}
-```
-
-**429 Rate Limited:**
-
-```json
-{
-  "error": {
-    "code": "RATE_LIMIT_EXCEEDED",
-    "message": "Too many dispute requests. Max 5 per hour.",
-    "statusCode": 429,
-    "correlationId": "12345678-1234-5678-1234-567812345678",
-    "retryAfter": 3542
-  }
-}
-```
-
-**503 Service Unavailable:**
-
-```json
-{
-  "error": {
-    "code": "SERVICE_UNAVAILABLE",
-    "message": "Stellar network temporarily unavailable. Please retry in 30 seconds.",
-    "statusCode": 503,
-    "correlationId": "12345678-1234-5678-1234-567812345678"
-  }
-}
-```
-
----
-
-## Rate Limiting
-
-Rate limits are enforced per authenticated wallet address:
-
-| Endpoint              | Window     | Limit       |
-| --------------------- | ---------- | ----------- |
-| `/auth/login`         | 15 minutes | 10 attempts |
-| `/trades` (GET)       | 1 minute   | 30 requests |
-| `/trades/:id/dispute` | 1 hour     | 5 disputes  |
-| All other endpoints   | 1 minute   | 30 requests |
-
-**Response Headers:**
-
-```
-X-RateLimit-Limit: 10
-X-RateLimit-Remaining: 3
-X-RateLimit-Reset: 1234567890
-```
-
----
-
-## CORS Policy
-
-CORS is configured via the `CORS_ORIGINS` environment variable (comma-separated list).
-
-**Development (permissive):**
-
-```
-CORS_ORIGINS=
-```
-
-**Production:**
-
-```
-CORS_ORIGINS=https://app.amana.com,https://staging.amana.com
-```
-
-**Response Headers:**
-
-```
-Access-Control-Allow-Origin: https://app.amana.com
-Access-Control-Allow-Credentials: true
-Access-Control-Allow-Methods: GET, POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type, Authorization
-```
-
----
-
-## Distributed Tracing
-
-Every request is assigned correlation and request IDs for observability:
-
-```
-Request:  x-correlation-id: 12345678-1234-5678-1234-567812345678 (optional)
-Response: x-correlation-id: 12345678-1234-5678-1234-567812345678
-Response: x-request-id:      87654321-4321-8765-4321-876543218765
-```
-
-Use these IDs to correlate:
-
-- Application logs (Pino JSON logs)
-- OpenTelemetry traces (Jaeger, Zipkin, Prometheus)
-- Database query logs
-
----
-
-## Integration Examples
-
-### JavaScript/TypeScript
-
-```typescript
-const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
-
-const response = await fetch("http://localhost:4000/trades", {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${jwt}`,
-    "Content-Type": "application/json",
-    "x-correlation-id": "my-correlation-123",
-  },
-  body: JSON.stringify({
-    sellerAddress: "GXXXXXXX...",
-    amountUsdc: "1000.50",
-    buyerLossBps: 5000,
-    sellerLossBps: 5000,
-  }),
-});
-
-const { data } = await response.json();
-console.log("Correlation ID:", response.headers.get("x-correlation-id"));
-```
-
-### cURL
-
-```bash
-curl -X POST http://localhost:4000/trades \
-  -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -H "x-correlation-id: my-correlation-123" \
-  -d '{
-    "sellerAddress": "GXXXXXXX...",
-    "amountUsdc": "1000.50",
-    "buyerLossBps": 5000,
-    "sellerLossBps": 5000
-  }'
-```
-
----
-
-## Health Check
-
-**Endpoint:** `GET /health`
-
-**Authentication:** Not required
-
-**Response (200 OK):**
-
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-06-24T10:30:00Z",
-  "version": "1.0.0",
-  "services": {
-    "database": "healthy",
-    "redis": "healthy",
-    "stellar": "healthy",
-    "ipfs": "healthy"
-  }
-}
-```
-
----
-
-## Support & Debugging
-
-For debugging, collect:
-
-1. **Correlation ID** from response headers
-2. **Request/Response JSON** (sanitize secrets)
-3. **Timestamp** of the request
-4. **Endpoint & HTTP method**
-
-Then query logs:
-
-```bash
-grep "correlation_id=12345678" logs/amana-backend.log
-```
-
-Or in Jaeger/Zipkin UI, search by trace ID.
+Retrieve immut

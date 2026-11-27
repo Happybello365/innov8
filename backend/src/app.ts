@@ -3,6 +3,7 @@ import express from "express";
 import helmet from "helmet";
 import { errorHandler } from "./middleware/errorHandler";
 import { correlationIdMiddleware } from "./middleware/correlationId.middleware";
+import { requestCancellationMiddleware } from "./middleware/requestCancellation.middleware";
 import { tracingMiddleware } from "./middleware/tracing.middleware";
 import loggerMiddleware, { appLogger } from "./middleware/logger";
 import { bodyParsers } from "./middleware/bodyLimits";
@@ -15,13 +16,18 @@ import { createAdminContractRouter } from "./routes/admin.contract.routes";
 import { createAdminAuthRouter } from "./routes/admin.auth.routes";
 import { createAdminStreamsRouter } from "./routes/admin.streams.routes";
 import { createAdminTradeBatchRouter } from "./routes/admin.trades.batch.routes";
+import { createAdminExpiryRouter } from "./routes/admin.expiry.routes";
 import { createAdminPayoutsRouter } from "./routes/admin.payouts.routes";
 import { webhooksRoutes } from "./routes/webhooks.routes";
 import { inboundWebhooksRoutes } from "./routes/webhooks.inbound.routes";
 import { captureRawBody } from "./middleware/webhookSignature.middleware";
 import { createAdminDlqRouter } from "./routes/admin.dlq.routes";
+import { createAdminJobsRouter } from "./routes/admin.jobs.routes";
+import { createAdminWalletChallengeRouter } from "./routes/admin.walletChallenge.routes";
 import { createAdminReportRouter } from "./routes/admin.report.routes";
 import { createAdminEvidenceRouter } from "./routes/admin.evidence.routes";
+import { createAdminApiKeyScopeRouter } from "./routes/admin.apiKeyScope.routes";
+import { createAdminNotificationTemplatesRouter } from "./routes/admin.notificationTemplates.routes";
 import { adminFeatureGate } from "./middleware/adminFeatureGate.middleware";
 import { env } from "./config/env";
 import { csrfProtection } from "./middleware/csrf.middleware";
@@ -106,6 +112,9 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
   // Correlation ID must be registered before the logger so every log line
   // produced by pino-http already carries the tracing IDs.
   app.use(correlationIdMiddleware);
+  // Propagate client disconnection via AbortSignal so repository/RPC/queue
+  // calls can bail out early when no one is waiting for the response (#450).
+  app.use(requestCancellationMiddleware);
   // OpenTelemetry tracing middleware - integrates with correlation IDs
   app.use(tracingMiddleware);
   app.use(loggerMiddleware);
@@ -147,6 +156,10 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
 
   // Admin trade batch operations: POST /admin/trades/batch/status
   app.use(adminFeatureGate, csrfProtection, createAdminTradeBatchRouter());
+  app.use(adminFeatureGate, csrfProtection, createAdminExpiryRouter());
+
+  // Notification template preview / self test-send: /admin/notifications/templates
+  app.use(adminFeatureGate, csrfProtection, createAdminNotificationTemplatesRouter());
 
   // Admin payout idempotency: GET /api/admin/payouts, POST /api/admin/payouts/reconcile, GET /api/admin/payouts/pending
   app.use(adminFeatureGate, csrfProtection, createAdminPayoutsRouter());
@@ -169,10 +182,17 @@ export function createApp(isShuttingDown?: () => boolean): express.Application {
 
   // Admin dead-letter queue inspection/replay: GET /api/admin/dlq/:queue, POST /api/admin/dlq/:queue/:jobId/replay
   app.use(adminFeatureGate, csrfProtection, createAdminDlqRouter());
+  // Admin scheduled-job pause controls: GET /api/admin/jobs, GET /api/admin/jobs/:job/status, POST /api/admin/jobs/:job/{pause,resume}
+  app.use(adminFeatureGate, csrfProtection, createAdminJobsRouter());
   // Admin cross-entity reporting: POST /api/admin/reports/query, /api/admin/reports/saved
   app.use(adminFeatureGate, csrfProtection, createAdminReportRouter());
   // Admin evidence ops & XDR diagnostics: /api/admin/diagnostics/xdr, /api/admin/evidence/quarantine, /api/admin/evidence/reverify
   app.use(adminFeatureGate, csrfProtection, createAdminEvidenceRouter());
+
+  // Admin API key scope simulator (#476): POST /api/admin/api-keys/simulate, /simulate/batch, GET /actions
+  app.use(adminFeatureGate, csrfProtection, createAdminApiKeyScopeRouter());
+  // Admin wallet challenge cleanup: POST /api/admin/wallet-challenges/cleanup
+  app.use(adminFeatureGate, csrfProtection, createAdminWalletChallengeRouter());
 
   // Error handler is registered last so it catches errors from all routes,
   // including any routes added to the app after createApp() returns.

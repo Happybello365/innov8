@@ -122,3 +122,11 @@ The implementation follows established patterns in the codebase:
 - Alerts route through existing `alertService` infrastructure
 - Database constraints prevent concurrent modifications
 - Graceful error handling with comprehensive logging
+
+## Feedback classification (#568)
+
+`backend/src/services/pilotFeedbackClassification.ts` classifies each item by
+journey, severity, region and action owner using keyword rules and an optional
+region hint. The result is attached to every `pilot_feedback_sla_violation`
+alert under `classification`. It contains enumerated labels only (no free text,
+submitter or wallet data).
