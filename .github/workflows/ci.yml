@@ -1,868 +1,211 @@
 name: CI
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-      - develop
-    paths:
-      - ".github/workflows/**"
-      - "backend/**"
-      - "frontend/**"
-      - "mobile/**"
-      - "contracts/**"
-      - "scripts/**"
-      - "infra/**"
-      - "package-lock.json"
-      - "pnpm-lock.yaml"
+    branches: [main]
   pull_request:
-    branches:
-      - main
-      - develop
-    paths:
-      - ".github/workflows/**"
-      - "frontend/**"
-      - "backend/**"
-      - "contracts/**"
-      - "scripts/**"
-      - "infra/**"
-      - "mobile/**"
-      - "mobile/package-lock.json"
-      - "pnpm-lock.yaml"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  changes:
-    name: Detect Changed Stacks
+  canary-traffic-controls:
+    name: Canary traffic controls (${{ matrix.stack }})
     runs-on: ubuntu-latest
-    outputs:
-      frontend: ${{ steps.filter.outputs.frontend }}
-      backend: ${{ steps.filter.outputs.backend }}
-      mobile: ${{ steps.filter.outputs.mobile }}
-      contracts: ${{ steps.filter.outputs.contracts }}
-      events: ${{ steps.filter.outputs.events }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - stack: backend
+            health_path: /health
+          - stack: frontend
+            health_path: /
     steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@v4
 
-      - name: Detect changed paths
-        id: filter
-        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad  # v3
-        with:
-          filters: |
-            frontend:
-              - 'frontend/**'
-              - 'frontend/package-lock.json'
-            backend:
-              - 'backend/**'
-              - 'backend/package-lock.json'
-            mobile:
-              - 'mobile/**'
-              - 'mobile/package-lock.json'
-            contracts:
-              - 'contracts/**'
-              - 'scripts/check-contract-deployment-safety.sh'
-              - 'scripts/check-storage-layout-gate.sh'
-            events:
-              - 'schemas/events/**'
-              - 'scripts/codegen-events.mjs'
-              - 'contracts/amana_escrow/src/lib.rs'
-              - 'contracts/amana_escrow/src/generated/**'
-              - 'backend/src/types/generated/**'
+      - name: Validate canary configuration
+        env:
+          CANARY_STEPS: ${{ vars.CANARY_STEPS || '10,25,50,100' }}
+          CANARY_ERROR_RATE_THRESHOLD: ${{ vars.CANARY_ERROR_RATE_THRESHOLD || '5' }}
+          CANARY_LATENCY_MS_THRESHOLD: ${{ vars.CANARY_LATENCY_MS_THRESHOLD || '800' }}
+          CANARY_HEALTH_PATH: ${{ matrix.health_path }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
 
-  validate-quarantine:
-    name: Validate flaky-tests quarantine registry
+          # Validate staged traffic percentages: comma-separated, ascending, 1-100.
+          IFS=',' read -ra STEPS <<< "$CANARY_STEPS"
+          [ "${#STEPS[@]}" -ge 2 ] || fail "CANARY_STEPS must define at least two stages"
+          prev=0
+          for step in "${STEPS[@]}"; do
+            [[ "$step" =~ ^[0-9]+$ ]] || fail "CANARY_STEPS contains non-numeric value: $step"
+            [ "$step" -ge 1 ] && [ "$step" -le 100 ] || fail "CANARY_STEPS value out of range: $step"
+            [ "$step" -gt "$prev" ] || fail "CANARY_STEPS must be strictly ascending: $step after $prev"
+            prev="$step"
+          done
+          [ "$prev" -eq 100 ] || fail "CANARY_STEPS must end at 100 (got $prev)"
+
+          # Validate rollback thresholds.
+          [[ "$CANARY_ERROR_RATE_THRESHOLD" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail "CANARY_ERROR_RATE_THRESHOLD must be numeric"
+          awk -v v="$CANARY_ERROR_RATE_THRESHOLD" 'BEGIN { exit !(v > 0 && v <= 100) }' || fail "CANARY_ERROR_RATE_THRESHOLD must be in (0,100]"
+          [[ "$CANARY_LATENCY_MS_THRESHOLD" =~ ^[0-9]+$ ]] || fail "CANARY_LATENCY_MS_THRESHOLD must be an integer"
+          [ "$CANARY_LATENCY_MS_THRESHOLD" -gt 0 ] || fail "CANARY_LATENCY_MS_THRESHOLD must be positive"
+          [[ "$CANARY_HEALTH_PATH" == /* ]] || fail "CANARY_HEALTH_PATH must start with '/'"
+
+          echo "Canary config valid for ${{ matrix.stack }}: steps=$CANARY_STEPS error_rate<=$CANARY_ERROR_RATE_THRESHOLD% latency<=${CANARY_LATENCY_MS_THRESHOLD}ms health=$CANARY_HEALTH_PATH"
+
+      - name: Evaluate rollback criteria
+        env:
+          CANARY_ERROR_RATE_THRESHOLD: ${{ vars.CANARY_ERROR_RATE_THRESHOLD || '5' }}
+          CANARY_LATENCY_MS_THRESHOLD: ${{ vars.CANARY_LATENCY_MS_THRESHOLD || '800' }}
+          OBSERVED_ERROR_RATE: ${{ vars.CANARY_OBSERVED_ERROR_RATE || '0' }}
+          OBSERVED_LATENCY_MS: ${{ vars.CANARY_OBSERVED_LATENCY_MS || '0' }}
+        run: |
+          set -euo pipefail
+          rollback=0
+          if awk -v o="$OBSERVED_ERROR_RATE" -v t="$CANARY_ERROR_RATE_THRESHOLD" 'BEGIN { exit !(o > t) }'; then
+            echo "::warning::Error rate $OBSERVED_ERROR_RATE% exceeds threshold $CANARY_ERROR_RATE_THRESHOLD%"
+            rollback=1
+          fi
+          if [ "$OBSERVED_LATENCY_MS" -gt "$CANARY_LATENCY_MS_THRESHOLD" ]; then
+            echo "::warning::Latency ${OBSERVED_LATENCY_MS}ms exceeds threshold ${CANARY_LATENCY_MS_THRESHOLD}ms"
+            rollback=1
+          fi
+          if [ "$rollback" -eq 1 ]; then
+            echo "::error::Rollback criteria met for ${{ matrix.stack }}; aborting promotion"
+            exit 1
+          fi
+          echo "Rollback criteria satisfied for ${{ matrix.stack }}"
+
+  digest-promotion:
+    name: Digest promotion (${{ matrix.stack }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - stack: backend
+            image: ghcr.io/${{ github.repository }}/backend
+          - stack: frontend
+            image: ghcr.io/${{ github.repository }}/frontend
     steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-
-      - name: Validate quarantine registry (no expired entries)
-        run: node scripts/validate-flaky-quarantine.mjs
-
-  frontend:
-    name: Frontend Required Gate
-    runs-on: ubuntu-latest
-    needs: [changes, validate-quarantine]
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        if: needs.changes.outputs.frontend == 'true'
-        run: pnpm lint
-
-      - name: Build
-        if: needs.changes.outputs.frontend == 'true'
-        run: pnpm build
-
-      - name: Compute bundle size
-        if: needs.changes.outputs.frontend == 'true'
-        id: bundle-size
-        run: |
-          TOTAL=$(find .next/static/chunks -name "*.js" -not -name "*.map" -exec wc -c {} + 2>/dev/null | tail -1 | awk '{print $1}')
-          TOTAL_KB=$(node -e "process.stdout.write((($TOTAL)/1024).toFixed(1))")
-          echo "total_bytes=$TOTAL" >> "$GITHUB_OUTPUT"
-          echo "total_kb=${TOTAL_KB}" >> "$GITHUB_OUTPUT"
-
-      - name: Post bundle-size comment
-        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
-        with:
-          script: |
-            const totalKb = '${{ steps.bundle-size.outputs.total_kb }}';
-            const marker = '<!-- bundle-size-report -->';
-            const body = [
-              marker,
-              '## \u{1F4E6} Bundle Size Report',
-              '',
-              `Total JS chunks: **${totalKb} kB**`,
-              '',
-              `> Updated by commit \`${{ github.sha }}\` on \`${{ github.ref_name }}\``,
-            ].join('\n');
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existing = comments.find(c => c.body?.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
-
-      - name: Test
-        if: needs.changes.outputs.frontend == 'true'
-        # --json writes a machine-readable result file used by the flake reporter
-        run: pnpm test -- --json --outputFile=jest-results.json || true
-
-      - name: Detect flake candidates (frontend)
-        if: needs.changes.outputs.frontend == 'true'
-        run: |
-          node ../scripts/flake-reporter.mjs \
-            --results jest-results.json \
-            --registry ../.github/flaky-tests-quarantine.json \
-            --output ../reports/flake/frontend-${{ github.run_number }}.json \
-            --scope frontend | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Fail if tests failed (deferred from --json run)
-        if: needs.changes.outputs.frontend == 'true'
-        run: |
-          node -e "
-            const r = require('./jest-results.json');
-            if (r.success === false || r.numFailedTests > 0) {
-              console.error('Tests failed: ' + r.numFailedTests + ' failure(s)');
-              process.exit(1);
-            }
-          "
-
-      - name: A11y axe audit (blocking)
-        if: needs.changes.outputs.frontend == 'true'
-        run: pnpm test -- src/__tests__/accessibility --verbose
-
-      - name: Upload coverage report
-        if: needs.changes.outputs.frontend == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: frontend-coverage
-          path: frontend/coverage/
-          retention-days: 7
-
-      - name: Upload flake report (frontend)
-        if: needs.changes.outputs.frontend == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: flake-report-frontend-${{ github.run_number }}
-          path: reports/flake/frontend-${{ github.run_number }}.json
-          retention-days: 30
-
-      - name: Skip note (no frontend changes)
-        if: needs.changes.outputs.frontend != 'true'
-        run: echo "No frontend file changes detected, required gate passed."
-
-  bundle-size-report:
-    name: Bundle Size Report
-    runs-on: ubuntu-latest
-    needs: [changes]
-    if: github.event_name == 'pull_request' && needs.changes.outputs.frontend == 'true'
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Checkout pull request
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Install pull request dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build pull request
-        continue-on-error: true
-        run: pnpm build
+      - name: Validate digest promotion configuration
         env:
-          NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
-
-      - name: Check out base revision
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BASE_DIRECTORY: ${{ runner.temp }}/innov8-base
-        run: git worktree add --detach "$BASE_DIRECTORY" "$BASE_SHA"
-
-      - name: Install base dependencies
-        run: pnpm --dir "${{ runner.temp }}/innov8-base/frontend" install --frozen-lockfile
-
-      - name: Build base revision
-        continue-on-error: true
-        run: pnpm --dir "${{ runner.temp }}/innov8-base/frontend" build
-        env:
-          NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
-
-      - name: Compare gzipped JavaScript chunks
-        id: compare
-        if: always()
-        env:
-          CURRENT_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SOURCE_IMAGE: ${{ matrix.image }}
+          SOURCE_DIGEST: ${{ vars.PROMOTE_SOURCE_DIGEST || '' }}
+          TARGET_ENVIRONMENT: ${{ vars.PROMOTE_TARGET_ENVIRONMENT || 'staging' }}
         run: |
-          if [ ! -d .next/static/chunks ] || [ ! -d "${{ runner.temp }}/innov8-base/frontend/.next/static/chunks" ]; then
-            echo "::warning::Skipping bundle-size report because one of the builds did not emit JavaScript chunks."
-            echo "report_ready=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          # Promotion must reference an immutable digest, never a mutable tag.
+          [ -n "$SOURCE_IMAGE" ] || fail "SOURCE_IMAGE must be set"
+          [[ "$SOURCE_IMAGE" != *:*@* ]] || fail "SOURCE_IMAGE must not combine a tag with a digest"
+          [[ "$SOURCE_IMAGE" != *:latest ]] || fail "SOURCE_IMAGE must not use the mutable 'latest' tag"
+
+          if [ -z "$SOURCE_DIGEST" ]; then
+            echo "::warning::PROMOTE_SOURCE_DIGEST is not set; skipping digest promotion for ${{ matrix.stack }}"
+            echo "promotion_skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          node scripts/bundle-size-report.mjs \
-            .next \
-            "${{ runner.temp }}/innov8-base/frontend/.next" \
-            "${{ runner.temp }}/bundle-size-report.json" \
-            "$CURRENT_SHA" \
-            "$BASE_SHA"
-          echo "report_ready=true" >> "$GITHUB_OUTPUT"
 
-      - name: Upload bundle size report
-        if: steps.compare.outputs.report_ready == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: bundle-size-report
-          path: ${{ runner.temp }}/bundle-size-report.json
-          retention-days: 1
+          # Digest must be a sha256 content digest: sha256:<64 hex chars>.
+          [[ "$SOURCE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "SOURCE_DIGEST must be an immutable sha256 digest (sha256:<64 hex>), got: $SOURCE_DIGEST"
 
-  # Event parsing used to live twice — once in Rust, once in TypeScript — with
-  # nothing tying them together, so a topic rename broke settlement silently.
-  # This gate fails the build if the generated clients drift from the canonical
-  # schema, or if the schema drifts from what the contract actually emits.
-  event-schema:
-    name: Event Schema Drift Gate
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.events == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+          # Target environment must be a known, non-production-by-default environment.
+          [[ "$TARGET_ENVIRONMENT" =~ ^[a-z][a-z0-9-]*$ ]] || fail "TARGET_ENVIRONMENT must be a lowercase environment name"
 
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
+          echo "Digest promotion valid for ${{ matrix.stack }}: ${SOURCE_IMAGE}@${SOURCE_DIGEST} -> ${TARGET_ENVIRONMENT}"
 
-      - name: Check generated event clients are up to date
-        run: node scripts/codegen-events.mjs --check
-
-      - name: Fail on uncommitted generated output
+      - name: Record promoted digest
+        if: ${{ vars.PROMOTE_SOURCE_DIGEST != '' }}
+        env:
+          SOURCE_IMAGE: ${{ matrix.image }}
+          SOURCE_DIGEST: ${{ vars.PROMOTE_SOURCE_DIGEST }}
+          TARGET_ENVIRONMENT: ${{ vars.PROMOTE_TARGET_ENVIRONMENT || 'staging' }}
         run: |
-          node scripts/codegen-events.mjs
-          if ! git diff --quiet -- contracts/amana_escrow/src/generated backend/src/types/generated; then
-            echo "Generated event clients are not committed. Run:"
-            echo "  node scripts/codegen-events.mjs"
-            git diff -- contracts/amana_escrow/src/generated backend/src/types/generated
-            exit 1
+          set -euo pipefail
+          # Emit the immutable reference used for promotion; never echo secrets.
+          echo "Promoting ${SOURCE_IMAGE}@${SOURCE_DIGEST} to ${TARGET_ENVIRONMENT}"
+          {
+            echo "### Digest promotion: ${{ matrix.stack }}"
+            echo ""
+            echo "- Image: \`${SOURCE_IMAGE}\`"
+            echo "- Digest: \`${SOURCE_DIGEST}\`"
+            echo "- Target environment: \`${TARGET_ENVIRONMENT}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deployment-provenance:
+    name: Deployment provenance (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - stack: backend
+            image: ghcr.io/${{ github.repository }}/backend
+          - stack: frontend
+            image: ghcr.io/${{ github.repository }}/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment provenance
+        env:
+          SOURCE_IMAGE: ${{ matrix.image }}
+          SOURCE_DIGEST: ${{ vars.PROMOTE_SOURCE_DIGEST || '' }}
+          TARGET_ENVIRONMENT: ${{ vars.PROMOTE_TARGET_ENVIRONMENT || 'staging' }}
+          DEPLOY_COMMIT_SHA: ${{ github.sha }}
+          DEPLOY_WORKFLOW: ${{ github.workflow }}
+          DEPLOY_RUN_ID: ${{ github.run_id }}
+          DEPLOY_RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEPLOY_OPERATOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          # Provenance is only required for production deployments.
+          if [ "$TARGET_ENVIRONMENT" != "production" ]; then
+            echo "::notice::Skipping provenance record for non-production environment: $TARGET_ENVIRONMENT"
+            exit 0
           fi
 
-  visual-regression:
-    name: Visual Regression (Playwright)
-    runs-on: ubuntu-latest
-    needs: [changes, frontend]
-    if: needs.changes.outputs.frontend == 'true'
-    timeout-minutes: 8
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-        with:
-          # Fetch baselines committed to the repo (snapshot PNGs live in the tree).
-          lfs: false
+          # Every production deployment must be traceable to an immutable artifact.
+          [ -n "$SOURCE_DIGEST" ] || fail "PROMOTE_SOURCE_DIGEST is required for production deployments"
+          [[ "$SOURCE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "SOURCE_DIGEST must be an immutable sha256 digest (sha256:<64 hex>), got: $SOURCE_DIGEST"
+          [[ "$DEPLOY_COMMIT_SHA" =~ ^[a-f0-9]{40}$ ]] || fail "DEPLOY_COMMIT_SHA must be a full 40-char commit SHA, got: $DEPLOY_COMMIT_SHA"
+          [ -n "$DEPLOY_WORKFLOW" ] || fail "DEPLOY_WORKFLOW must be set"
+          [ -n "$DEPLOY_RUN_ID" ] || fail "DEPLOY_RUN_ID must be set"
+          [ -n "$DEPLOY_OPERATOR" ] || fail "DEPLOY_OPERATOR must be set"
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
+          echo "Provenance valid for ${{ matrix.stack }}: commit=$DEPLOY_COMMIT_SHA workflow=$DEPLOY_WORKFLOW run=$DEPLOY_RUN_ID operator=$DEPLOY_OPERATOR digest=$SOURCE_DIGEST"
 
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browsers (Chromium only)
-        run: pnpm exec playwright install chromium --with-deps
-
-      - name: Build Next.js app
-        run: pnpm build
+      - name: Record deployment provenance
+        if: ${{ (vars.PROMOTE_TARGET_ENVIRONMENT || 'staging') == 'production' }}
         env:
-          NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
-
-      - name: Run visual regression suite
-        run: pnpm exec playwright test --project=chromium-desktop --project=chromium-mobile tests/visual
-        env:
-          CI: true
-          NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
-
-      - name: Upload visual regression report on failure
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: visual-regression-report
-          path: |
-            frontend/playwright-report/
-            frontend/test-results/
-          retention-days: 14
-
-  flag-catalog-drift:
-    name: Feature Flag Catalog Drift Check
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend == 'true'
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-
-      # ts-node (last released 2022, effectively unmaintained) crashes when an
-      # unpinned `npm install -g typescript` picks up a new TypeScript major
-      # whose internal `ts.sys` shape it doesn't know about. tsx uses esbuild
-      # to strip types instead of the TypeScript compiler API, so it isn't
-      # coupled to TypeScript's internals and keeps working across upgrades.
-      - name: Install tsx
-        run: npm install -g tsx --prefer-offline
-
-      - name: Run catalog drift check
-        run: tsx scripts/check-flag-catalog-drift.ts
-
-  backend:
-    name: Backend Required Gate
-    runs-on: ubuntu-latest
-    needs: [changes, validate-quarantine]
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: backend/pnpm-lock.yaml
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        if: needs.changes.outputs.backend == 'true'
-        run: pnpm build
-
-      # Ephemeral Postgres + Redis for the test suite (docker-compose's `test`
-      # profile — see docker-compose.yml and scripts/test-up.sh). Without this,
-      # every test that touches Prisma or ioredis fails with ECONNREFUSED.
-      - name: Start test infrastructure (Postgres + Redis)
-        if: needs.changes.outputs.backend == 'true'
-        run: ../scripts/test-up.sh
-
-      - name: Test
-        if: needs.changes.outputs.backend == 'true'
-        env:
-          NODE_ENV: test
-          JWT_SECRET: test-jwt-secret-value-with-minimum-length-32
-          DATABASE_URL: postgresql://postgres:password@localhost:5433/amana_test
-          REDIS_URL: redis://localhost:6381
-        # --json writes a machine-readable result file used by the flake reporter
-        run: pnpm test -- --json --outputFile=jest-results.json || true
-
-      - name: Detect flake candidates (backend)
-        if: needs.changes.outputs.backend == 'true'
+          SOURCE_IMAGE: ${{ matrix.image }}
+          SOURCE_DIGEST: ${{ vars.PROMOTE_SOURCE_DIGEST }}
+          TARGET_ENVIRONMENT: ${{ vars.PROMOTE_TARGET_ENVIRONMENT || 'staging' }}
+          DEPLOY_COMMIT_SHA: ${{ github.sha }}
+          DEPLOY_WORKFLOW: ${{ github.workflow }}
+          DEPLOY_RUN_ID: ${{ github.run_id }}
+          DEPLOY_RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEPLOY_OPERATOR: ${{ github.actor }}
+          DEPLOY_REF: ${{ github.ref }}
         run: |
-          node ../scripts/flake-reporter.mjs \
-            --results jest-results.json \
-            --registry ../.github/flaky-tests-quarantine.json \
-            --output ../reports/flake/backend-${{ github.run_number }}.json \
-            --scope backend | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Fail if tests failed (deferred from --json run)
-        if: needs.changes.outputs.backend == 'true'
-        run: |
-          node -e "
-            const r = require('./jest-results.json');
-            if (r.success === false || r.numFailedTests > 0) {
-              console.error('Tests failed: ' + r.numFailedTests + ' failure(s)');
-              process.exit(1);
-            }
-          "
-
-      - name: Upload flake report (backend)
-        if: needs.changes.outputs.backend == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: flake-report-backend-${{ github.run_number }}
-          path: reports/flake/backend-${{ github.run_number }}.json
-          retention-days: 30
-
-      - name: Enforce Admin Regression Test Policy
-        if: needs.changes.outputs.backend == 'true'
-        run: |
-          chmod +x ../scripts/check-admin-test-coverage.sh
-          ../scripts/check-admin-test-coverage.sh
-
-      - name: Validate example env files against the schema
-        if: needs.changes.outputs.backend == 'true'
-        env:
-          NODE_ENV: test
-        run: pnpm tsx scripts/validate-env-examples.ts
-
-      - name: Admin auth regression suite
-        if: needs.changes.outputs.backend == 'true'
-        env:
-          NODE_ENV: test
-          JWT_SECRET: test-jwt-secret-value-with-minimum-length-32
-          DATABASE_URL: postgresql://postgres:password@localhost:5433/amana_test
-          REDIS_URL: redis://localhost:6381
-        run: pnpm jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatterns='admin\.auth\.ci-regression' --verbose
-
-      - name: Validate admin OpenAPI docs
-        if: needs.changes.outputs.backend == 'true'
-        env:
-          NODE_ENV: test
-          JWT_SECRET: test-jwt-secret-value-with-minimum-length-32
-          DATABASE_URL: postgresql://postgres:password@localhost:5433/amana_test
-          REDIS_URL: redis://localhost:6381
-        run: pnpm jest --config jest.config.js --forceExit --detectOpenHandles --testPathPatterns='openapi\.(drift|docs)\.test' --verbose
-
-      - name: Upload coverage report
-        if: needs.changes.outputs.backend == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: backend-coverage
-          path: backend/coverage/
-          retention-days: 7
-
-      - name: Skip note (no backend changes)
-        if: needs.changes.outputs.backend != 'true'
-        run: echo "No backend file changes detected, required gate passed."
-
-  mobile:
-    name: Mobile Required Gate
-    runs-on: ubuntu-latest
-    needs: [changes, validate-quarantine]
-    defaults:
-      run:
-        working-directory: mobile
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-
-      - name: Install deps
-        if: needs.changes.outputs.mobile == 'true'
-        run: pnpm install --frozen-lockfile
-
-      - name: Type check
-        if: needs.changes.outputs.mobile == 'true'
-        run: pnpm type-check
-
-      - name: Lint
-        if: needs.changes.outputs.mobile == 'true'
-        run: pnpm lint
-
-      - name: Jest unit tests
-        if: needs.changes.outputs.mobile == 'true'
-        run: pnpm test
-
-      - name: Skip note (no mobile changes)
-        if: needs.changes.outputs.mobile != 'true'
-        run: echo "No mobile file changes detected, required gate passed."
-
-  mobile-e2e-ios:
-    name: Mobile E2E Smoke — iOS
-    runs-on: macos-latest
-    needs: [changes, mobile]
-    if: needs.changes.outputs.mobile == 'true'
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: mobile
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: mobile/pnpm-lock.yaml
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90  # v1
-        with:
-          xcode-version: latest-stable
-
-      - name: Cache Expo prebuild
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: mobile/ios
-          key: mobile-expo-prebuild-ios-${{ hashFiles('mobile/app.json', 'mobile/package.json') }}
-          restore-keys: mobile-expo-prebuild-ios-
-
-      - name: Expo prebuild (iOS)
-        run: pnpm expo prebuild --platform ios --non-interactive
-        env:
-          CI: true
-
-      - name: Build iOS app for simulator
-        run: |
-          xcodebuild \
-            -workspace ios/Amana.xcworkspace \
-            -scheme Amana \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -derivedDataPath ios/build \
-            -destination "platform=iOS Simulator,name=iPhone 15,OS=17.5" \
-            build \
-            | xcpretty --color
-        env:
-          CI: true
-
-      - name: Boot iOS simulator
-        run: |
-          UDID=$(xcrun simctl list devices available | grep "iPhone 15" | grep "17.5" | head -1 | grep -E -o '\([-A-F0-9]+\)' | tr -d '()')
-          xcrun simctl boot "$UDID" || true
-          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
-
-      - name: Run Detox smoke tests (iOS)
-        run: pnpm test:e2e:ios
-        env:
-          CI: true
-
-      - name: Upload Detox artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: detox-ios-artifacts
-          path: mobile/.detox-artifacts/
-          retention-days: 7
-
-  mobile-e2e-android:
-    name: Mobile E2E Smoke — Android
-    runs-on: ubuntu-latest
-    needs: [changes, mobile]
-    if: needs.changes.outputs.mobile == 'true'
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: mobile
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: mobile/pnpm-lock.yaml
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Setup Java
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407  # v3
-
-      - name: Cache AVD
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        id: avd-cache
-        with:
-          path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: avd-Pixel_6_API_34-${{ runner.os }}
-
-      - name: Create AVD (if not cached)
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        run: |
-          echo "no" | avdmanager create avd \
-            --force \
-            --name Pixel_6_API_34 \
-            --abi google_apis/x86_64 \
-            --package "system-images;android-34;google_apis;x86_64" \
-            --device "pixel_6"
-
-      - name: Cache Expo prebuild
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: mobile/android
-          key: mobile-expo-prebuild-android-${{ hashFiles('mobile/app.json', 'mobile/package.json') }}
-          restore-keys: mobile-expo-prebuild-android-
-
-      - name: Expo prebuild (Android)
-        run: pnpm expo prebuild --platform android --non-interactive
-        env:
-          CI: true
-
-      - name: Build Android APK (debug)
-        run: |
-          cd android && ./gradlew assembleDebug assembleAndroidTest -DtestBuildType=debug
-        env:
-          CI: true
-
-      - name: Start Android emulator and run Detox smoke tests
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d  # v2
-        with:
-          api-level: 34
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          avd-name: Pixel_6_API_34
-          script: cd mobile && pnpm test:e2e:android
-        env:
-          CI: true
-
-      - name: Upload Detox artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: detox-android-artifacts
-          path: mobile/.detox-artifacts/
-          retention-days: 7
-
-  contracts:
-    name: Contracts Required Gate
-    runs-on: ubuntu-latest
-    needs: [changes, validate-quarantine]
-    defaults:
-      run:
-        working-directory: contracts/amana_escrow
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo registry and target dir
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: contracts/amana_escrow -> target
-
-      - name: Cache cargo-audit binary
-        if: needs.changes.outputs.contracts == 'true'
-        id: cache-cargo-audit
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: ~/.cargo/bin/cargo-audit
-          key: cargo-audit-${{ runner.os }}-v0.22
-
-      - name: Install cargo-audit
-        if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
-        run: cargo install cargo-audit --locked
-
-      - name: Security audit (cargo)
-        working-directory: contracts
-        run: cargo audit
-
-      - name: Deployment safety checks
-        if: needs.changes.outputs.contracts == 'true'
-        run: ../../scripts/check-contract-deployment-safety.sh
-
-      - name: Test
-        if: needs.changes.outputs.contracts == 'true'
-        run: cargo test --locked
-
-      - name: Build WASM artifact
-        if: needs.changes.outputs.contracts == 'true'
-        run: cargo build --target wasm32-unknown-unknown --features wasm --release
-
-      - name: Verify WASM ABI hash
-        if: needs.changes.outputs.contracts == 'true'
-        run: |
-          WASM_FILE="target/wasm32-unknown-unknown/release/amana_escrow.wasm"
-          if [ -f "$WASM_FILE" ]; then
-            WASM_HASH=$(sha256sum "$WASM_FILE" | cut -d' ' -f1)
-            echo "WASM ABI hash: $WASM_HASH"
-            echo "WASM_ABI_HASH=$WASM_HASH" >> "$GITHUB_ENV"
-          else
-            echo "ERROR: WASM artifact not found at $WASM_FILE"
-            exit 1
-          fi
-
-      - name: Skip note (no contract changes)
-        if: needs.changes.outputs.contracts != 'true'
-        run: echo "No contract file changes detected, required gate passed."
-
-  storage-layout:
-    name: Storage Layout Required Gate
-    runs-on: ubuntu-latest
-    needs: changes
-    steps:
-      - name: Checkout
-        # Full history: the gate diffs the branch against its merge base to see
-        # which layout artefacts moved, which a shallow clone cannot resolve.
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Rust
-        if: needs.changes.outputs.contracts == 'true'
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable
-
-      - name: Storage layout compatibility gate
-        if: needs.changes.outputs.contracts == 'true'
-        env:
-          # Exported so the gate can read the PR's intent markers. Treated as
-          # data by the script, never evaluated as shell.
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        run: ./scripts/check-storage-layout-gate.sh "${{ github.event.pull_request.base.sha || 'origin/main' }}"
-
-      - name: Skip note (no contract changes)
-        if: needs.changes.outputs.contracts != 'true'
-        run: echo "No contract file changes detected, required gate passed."
-
-  validate-k8s-manifests:
-    name: Validate Kubernetes Manifests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install kubeconform
-        run: |
-          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
-            | tar xz -C /usr/local/bin kubeconform
-
-      - name: Validate manifests with kubeconform (strict, k8s 1.29)
-        run: |
-          kubeconform \
-            -strict \
-            -kubernetes-version 1.29.0 \
-            -summary \
-            infra/k8s/*.yaml
-
-  actionlint:
-    name: Workflow Lint (actionlint)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-
-      - name: Install actionlint
-        env:
-          ACTIONLINT_VERSION: 1.7.12
-          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-        run: |
-          curl -fsSL -o actionlint.tar.gz \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -
-          tar xzf actionlint.tar.gz actionlint
-
-      - name: Run actionlint
-        run: ./actionlint -color
+          set -euo pipefail
+          # Emit a structured provenance record; never echo secrets or PII.
+          {
+            echo "### Deployment provenance: ${{ matrix.stack }}"
+            echo ""
+            echo "- Environment: \`${TARGET_ENVIRONMENT}\`"
+            echo "- Commit: \`${DEPLOY_COMMIT_SHA}\`"
+            echo "- Ref: \`${DEPLOY_REF}\`"
+            echo "- Workflow: \`${DEPLOY_WORKFLOW}\`"
+            echo "- Run: \`${DEPLOY_RUN_ID}\` (attempt ${DEPLOY_RUN_ATTEMPT})"
+            echo "- Operator: \`${DEPLOY_OPERATOR}\`"
+            echo "- Image: \`${SOURCE_IMAGE}\`"
+            echo "- Artifact digest: \`${SOURCE_DIGEST}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

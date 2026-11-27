@@ -128,6 +128,10 @@ model Trade {
   expiresAt     DateTime?
   /// Set by the sweeper once a refund has been successfully submitted on-chain.
   expiredAt     DateTime?
+  /// Set when the trade is archived; null means the trade is active (#454).
+  archivedAt    DateTime?
+  /// Wallet address of the actor that archived or restored the trade.
+  archivedBy    String?    @db.VarChar(255)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -149,6 +153,7 @@ model Trade {
   @@index([sellerAddress, status, createdAt])
   @@index([buyerAddress, createdAt])
   @@index([sellerAddress, createdAt])
+  @@index([archivedAt])
 }
 
 /// TradeTemplate stores a user's reusable trade terms. The buyer is always the
@@ -833,6 +838,54 @@ model ReputationScoreSnapshot {
   createdAt     DateTime @default(now())
 
   @@index([walletAddress, createdAt])
+}
+
+/// Lifecycle state of an asynchronous audit export request.
+/// QUEUED   — job accepted, waiting for a worker to pick it up.
+/// GENERATING — worker is actively building the export file.
+/// READY    — export completed; download URL / data is available.
+/// EXPIRED  — TTL elapsed; the export data has been discarded.
+enum AuditExportStatus {
+  QUEUED
+  GENERATING
+  READY
+  EXPIRED
+}
+
+/// AuditExport tracks an asynchronous admin audit-log export request.
+/// An admin POSTs to create one (status = QUEUED), the BullMQ worker drives
+/// it through GENERATING → READY, and a background sweep marks it EXPIRED
+/// after the configured TTL.
+model AuditExport {
+  id            Int               @id @default(autoincrement())
+  /// Opaque external reference returned to the requesting admin.
+  exportId      String            @unique @db.VarChar(255)
+  requestedBy   String            @db.VarChar(255)
+  format        String            @db.VarChar(10)
+  /// BullMQ job ID assigned when the job was enqueued.
+  jobId         String?           @db.VarChar(255)
+  status        AuditExportStatus @default(QUEUED)
+  /// Total rows written into the export (set when READY).
+  rowCount      Int?
+  /// Serialised export data stored in-process (populated when READY, null when EXPIRED).
+  /// For large exports this should be replaced with an S3 key.
+  data          String?           @db.Text
+  /// S3 key where the export was stored, if S3 upload succeeded.
+  s3Key         String?           @db.VarChar(512)
+  /// Non-null when READY; callers poll until this or EXPIRED.
+  readyAt       DateTime?
+  /// Set when the export is discarded by the expiry sweep.
+  expiredAt     DateTime?
+  /// ISO timestamp after which the sweep will mark the row EXPIRED.
+  expiresAt     DateTime
+  /// Error message captured if the job fails (surfaces to the status endpoint).
+  errorMessage  String?           @db.Text
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([requestedBy, createdAt])
+  @@index([status, expiresAt])
+  @@index([exportId])
 }
 
 /// GoalContribution records each on-chain deposit credited to a savings goal.
