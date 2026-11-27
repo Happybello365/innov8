@@ -133,3 +133,37 @@ path = "tests/pause_metadata_tests.rs"
 [[test]]
 name = "trade_state_machine_proptest"
 path = "tests/trade_state_machine_proptest.rs"
+
+[[test]]
+name = "upgrade_tests"
+path = "tests/upgrade_tests.rs"
+
+[[test]]
+name = "buyer_cancel_tests"
+path = "tests/buyer_cancel_tests.rs"
+
+[[test]]
+name = "quorum_stress_tests"
+path = "tests/quorum_stress_tests.rs"
+
+[[test]]
+name = "local_deployment_tests"
+path = "tests/local_deployment_tests.rs"
+
+[[test]]
+name = "extend_deadline_tests"
+path = "tests/extend_deadline_tests.rs"
+
+[[test]]
+name = "trade_history_tests"
+path = "tests/trade_history_tests.rs"
+
+# Issue #444 — contract upgrade compatibility checklist automation
+[[test]]
+name = "upgrade_checklist_tests"
+path = "tests/upgrade_checklist_tests.rs"
+
+# Issue #447 — Soroban resource-budget benchmark suite
+[[test]]
+name = "resource_budget_tests"
+path = "tests/resource_budget_tests.rs"
