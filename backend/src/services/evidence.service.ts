@@ -4,6 +4,11 @@ import { prisma as defaultPrisma } from "../lib/db";
 import { IPFSService, ServiceUnavailableError } from "./ipfs.service";
 import { getAdminAllowlistLowercase } from "../lib/accessControl";
 import { env } from "../config/env";
+import { validateEvidenceContent } from "./evidenceValidation";
+import {
+    EvidenceQuarantineService,
+    evidenceQuarantineService as defaultQuarantine,
+} from "./evidenceQuarantine.service";
 
 export class EvidenceAccessDeniedError extends Error {
     status = 403;
@@ -48,6 +53,10 @@ export class EvidenceScanError extends Error {
 export interface EvidenceScanResult {
     clean: boolean;
     reason?: string;
+    /** Not outright malicious, but must be reviewed before exposure (#468). */
+    suspicious?: boolean;
+    /** Set when the scan could not complete and was skipped (#468). */
+    incomplete?: boolean;
 }
 
 export interface EvidenceScanner {
@@ -86,6 +95,7 @@ export class EvidenceService {
         private readonly prisma: EvidenceDatabase = defaultPrisma as unknown as EvidenceDatabase,
         ipfs?: IPFSService,
         scanner?: EvidenceScanner,
+        private readonly quarantine: EvidenceQuarantineService = defaultQuarantine,
     ) {
         this.ipfs = ipfs ?? new IPFSService();
         this.scanner = scanner ?? new NoopEvidenceScanner();
@@ -109,10 +119,14 @@ export class EvidenceService {
             throw new EvidenceAccessDeniedError();
         }
 
-        const records = await this.prisma.tradeEvidence.findMany({
+        const allRecords = await this.prisma.tradeEvidence.findMany({
             where: { tradeId },
             orderBy: { createdAt: "asc" },
         });
+
+        // Quarantined uploads are hidden from everyone but admins (#468).
+        const blocked = await Promise.all(allRecords.map((r) => this.quarantine.isBlocked(r.cid)));
+        const records = allRecords.filter((_, i) => isAdmin || !blocked[i]);
 
         return records.map((r) => {
             const retentionExpired = isEvidenceMetadataExpired(r.createdAt);
@@ -125,6 +139,7 @@ export class EvidenceService {
                 url: retentionExpired ? null : this.resolveGatewayUrl(r.cid),
                 createdAt: r.createdAt,
                 retentionExpired,
+                ...(isAdmin ? { quarantined: blocked[allRecords.indexOf(r)] } : {}),
             };
         });
     }
@@ -149,23 +164,19 @@ export class EvidenceService {
             throw new EvidenceAccessDeniedError();
         }
 
-        // Validate declared mime type
-        const allowed = ["video/mp4", "video/webm"];
-        if (!allowed.includes(file.mimetype)) {
-            throw new EvidenceValidationError("Unsupported file type");
-        }
-
-        // Validate mime by magic bytes to prevent spoofed content-type uploads.
-        const sniffed = this.sniffMimeType(file.buffer);
-        if (!sniffed || sniffed !== file.mimetype) {
-            throw new EvidenceValidationError("File content does not match declared MIME type");
-        }
-
-        // Enforce configurable size limit (default 50MB)
+        // Shared MIME/size validation, also applied post-upload by the
+        // re-verification job (#469).
         const size = (file as any).size ?? file.buffer.length;
-        const MAX = env.EVIDENCE_MAX_BYTES;
-        if (size > MAX) {
+        if (size > env.EVIDENCE_MAX_BYTES) {
             throw new EvidenceValidationError("File too large");
+        }
+        const validation = validateEvidenceContent(file.buffer, file.mimetype);
+        if (!validation.ok) {
+            const reason =
+                validation.reason === "Unrecognised file content"
+                    ? "File content does not match declared MIME type"
+                    : validation.reason;
+            throw new EvidenceValidationError(reason);
         }
 
         const scan = await this.runEvidenceScan(file);
@@ -194,10 +205,21 @@ export class EvidenceService {
             throw err;
         }
 
+        let quarantined = false;
+        if (scan.suspicious || scan.incomplete) {
+            await this.quarantine.quarantine(
+                cid,
+                tradeId,
+                scan.incomplete ? "scan_incomplete" : scan.reason || "suspicious_content",
+            );
+            quarantined = true;
+        }
+
         return {
             evidenceId: record.id,
             cid,
             ipfsUrl: this.resolveGatewayUrl(cid),
+            quarantined,
         };
     }
 
@@ -251,26 +273,6 @@ export class EvidenceService {
         return url;
     }
 
-    private sniffMimeType(buffer: Buffer): "video/mp4" | "video/webm" | null {
-        // MP4: bytes 4-7 should contain 'ftyp' marker in ISO BMFF containers.
-        if (buffer.length >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp") {
-            return "video/mp4";
-        }
-
-        // WebM: EBML header starts with 0x1A45DFA3.
-        if (
-            buffer.length >= 4 &&
-            buffer[0] === 0x1a &&
-            buffer[1] === 0x45 &&
-            buffer[2] === 0xdf &&
-            buffer[3] === 0xa3
-        ) {
-            return "video/webm";
-        }
-
-        return null;
-    }
-
     private async runEvidenceScan(file: Express.Multer.File): Promise<EvidenceScanResult> {
         const required =
             process.env.EVIDENCE_SCAN_REQUIRED !== undefined
@@ -280,7 +282,7 @@ export class EvidenceService {
             return await this.scanner.scan(file);
         } catch (error) {
             if (!required) {
-                return { clean: true };
+                return { clean: true, incomplete: true };
             }
             throw new EvidenceScanError(
                 error instanceof Error ? error.message : "Evidence scan service unavailable",

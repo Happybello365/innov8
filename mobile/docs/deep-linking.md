@@ -24,19 +24,42 @@ and `navigation/AppNavigator.tsx`.
 | `/disputes/:id` | `DisputeDetail` | `{ id }` |
 | `/trades/:tradeId/evidence` | `EvidenceCapture` | `{ tradeId }` |
 | `/trades` | `TradeList` | — |
-| `/create-trade` | `CreateTrade` | — |
+| `/trades/create` or `/create-trade` | `CreateTrade` | — |
+| `/connect` | `WalletConnect` | — |
+| `/vault` | `VaultDashboard` | — |
 
 `frontend/src/lib/links.ts` mirrors this table for the web side.
 
 ## Auth-aware guards (login-then-continue)
 
-1. `parseDeepLink(url)` → target, or `null` for unknown/malformed (dropped
-   silently — never crashes).
-2. `AppNavigator.getStateFromPath` sends an unauthenticated user hitting a
-   protected link to `WalletConnect`.
-3. `useDeepLink` parks the real target in a module-level slot (survives the
-   WalletConnect → TradeList remount) and `resumePendingDeepLink` replays it the
-   moment a token appears.
+1. `useDeepLink.handleUrl` accepts absolute URLs from native Linking and
+   passes them through `parseDeepLink`.
+2. `useDeepLink` parks a valid target while the navigator initializes or while
+   a protected screen waits for login.
+3. `resumePendingDeepLink` replays the target when the navigator and session
+   are ready.
+
+## Allowlist validation (issue #534)
+
+Every incoming URL passes `deepLinkRejectionReason()` / `isAllowedDeepLink()`
+(`src/constants/links.ts`) **before** it is matched against the path table, so
+links to unrelated resources never navigate and are never parked for login.
+
+| Rule | Accepted | Rejected (reason) |
+| --- | --- | --- |
+| Scheme | `amanavault:`, `https:` | `http:`, `javascript:`, `file:`, `intent:`, other apps (`scheme`) |
+| Host (`https:` only) | `ALLOWED_LINK_HOSTS` = `amanavault.app`, `www.amanavault.app` (case-insensitive, exact match) | look-alikes such as `amanavault.app.evil.example` (`host`) |
+| Authority | bare host | userinfo `user:pass@` (`credentials`), explicit port (`port`), protocol-relative `//host` (`host`) |
+| Characters | printable URL characters | whitespace, control characters, backslashes (`malformed`) |
+| Route params | one decoded path segment, ≤ 128 chars | encoded `/` `\` `?` `#`, `..`, bad percent-encoding |
+
+The parser also accepts internal bare paths such as `/trades/T-1`. Native
+Linking requires an absolute URL.
+`LINK_PREFIXES` is derived from `ALLOWED_LINK_HOSTS`; when adding a host, update
+`ALLOWED_LINK_HOSTS`, `LINK_HOSTS` in `app.config.ts`, and the hosted
+association files together. Rejected links are dropped silently; the reason
+code is never logged with the raw URL, so tokens or PII in a crafted link are
+not leaked.
 
 ## Cold vs warm start
 

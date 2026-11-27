@@ -17,6 +17,7 @@ import {
 } from "../schemas/trade.schemas";
 import { RATE_LIMIT_CONFIG } from "../config/rateLimit";
 import { createWalletRateLimiter } from "../lib/rateLimit";
+import { computeETag, checkConditionalRequest } from "../lib/etag";
 
 export function createTradeRouter(prisma: PrismaClient = defaultPrisma) {
   const router = Router();
@@ -194,6 +195,13 @@ export function createTradeRouter(prisma: PrismaClient = defaultPrisma) {
         const trade = await tradeService.getTradeById(id, callerAddress);
         if (!trade) {
           res.status(404).json({ error: "Trade not found" });
+          return;
+        }
+
+        const etag = computeETag(trade.tradeId, trade.version, trade.updatedAt);
+        res.set("ETag", etag);
+        if (checkConditionalRequest(req, etag)) {
+          res.status(304).end();
           return;
         }
 

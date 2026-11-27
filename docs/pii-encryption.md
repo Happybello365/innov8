@@ -51,6 +51,16 @@ It walks every column in the inventory table above and fails (exit code 1) if an
 
 Every decrypt of manifest PII (`ManifestService.getManifestByTradeId`) writes a structured audit event via `logPiiAccess()` (`backend/src/lib/piiAudit.ts`), following the same `audit: true` convention as escrow audit logs (`backend/src/lib/escrowAudit.ts`). Each entry records `resource`, `recordId` (trade ID), `fields` decrypted, `actor` (caller wallet address), and `action`. Ship these logs to the same aggregator as other audit events and alert on unexpected `actor` values relative to trade participants/mediator allowlist.
 
+### Querying decrypt audits
+
+`GET /api/admin/audit/pii-access` (admin auth required) returns the most recent
+decrypts, newest first, with `resource`, `recordId`, `fields`, `actor`,
+`action` (the reason) and `timestamp`. Optional filters: `actor`, `resource`,
+`recordId`, `action`, `since` (ISO-8601; `400` if invalid) and `limit`
+(default 50, capped at 200). The query reads a bounded in-process buffer of the
+last 1000 decrypts and never contains plaintext; for longer or fleet-wide
+history, query the log aggregator on `auditType: "pii-decrypt"`.
+
 ## 6. Key Rotation Procedure & Drill
 
 1. Introduce a new `keyVersion` (e.g. `v2`) constant.

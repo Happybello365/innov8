@@ -14,6 +14,8 @@ export { RepScoreRing } from "./RepScoreRing";
 export type { RepScoreRingProps } from "./RepScoreRing";
 export { VideoUploadCard } from "./VideoUploadCard";
 export type { VideoUploadCardProps } from "./VideoUploadCard";
+export { EvidenceMetadataPanel } from "./EvidenceMetadataPanel";
+export type { EvidenceMetadataPanelProps } from "./EvidenceMetadataPanel";
 export {
   Modal,
   ModalBody,

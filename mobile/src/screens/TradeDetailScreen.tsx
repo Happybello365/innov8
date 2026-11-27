@@ -25,7 +25,7 @@ import { useAuthStore } from '../stores/authStore';
 import { AdminErrorBanner } from '../components/AdminErrorBanner';
 import { buildSupportMailto } from '../constants/support';
 import { webUrlFor } from '../constants/links';
-import { formatAmount } from '../utils/formatAmount';
+import { formatAmount, formatDate, formatQuantity } from '../utils/formatAmount';
 import { guardHighValueAction } from '../services/highValueReauth';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import type { AdminErrorView } from '../api/errors';
@@ -81,7 +81,7 @@ function ContractCard({ trade }: { trade: Trade }) {
       <InfoRow label="Fee" value="1% (seller)" />
       <InfoRow label="Token" value="cNGN" />
       {trade.commodity && <InfoRow label="Commodity" value={trade.commodity} />}
-      {trade.quantity && <InfoRow label="Quantity" value={`${trade.quantity} ${trade.unit ?? ''}`} />}
+      {trade.quantity && <InfoRow label="Quantity" value={formatQuantity(trade.quantity, trade.unit)} />}
     </View>
   );
 }
@@ -448,7 +448,7 @@ export default function TradeDetailScreen({ route, navigation, embedded = false 
           </View>
           <Text style={styles.amountText}>{formatAmount(currentTrade.amountUsdc, 'USDC')} USDC</Text>
           {currentTrade.commodity && (
-            <Text style={styles.commodityText}>{currentTrade.commodity}{currentTrade.quantity ? ` — ${currentTrade.quantity} ${currentTrade.unit ?? ''}` : ''}</Text>
+            <Text style={styles.commodityText}>{currentTrade.commodity}{currentTrade.quantity ? ` — ${formatQuantity(currentTrade.quantity, currentTrade.unit)}` : ''}</Text>
           )}
         </View>
 
@@ -485,10 +485,10 @@ export default function TradeDetailScreen({ route, navigation, embedded = false 
           <InfoRow label="Buyer" value={currentTrade.buyerAddress} mono />
           <InfoRow label="Seller" value={currentTrade.sellerAddress} mono />
           {currentTrade.createdAt && (
-            <InfoRow label="Created" value={new Date(currentTrade.createdAt).toLocaleDateString()} />
+            <InfoRow label="Created" value={formatDate(currentTrade.createdAt)} />
           )}
           {currentTrade.updatedAt && (
-            <InfoRow label="Updated" value={new Date(currentTrade.updatedAt).toLocaleDateString()} />
+            <InfoRow label="Updated" value={formatDate(currentTrade.updatedAt)} />
           )}
         </View>
 
@@ -510,7 +510,7 @@ export default function TradeDetailScreen({ route, navigation, embedded = false 
               <View key={note.id} style={styles.noteItem}>
                 <Text style={styles.noteAuthor}>{note.authorAddress.slice(0, 10)}…</Text>
                 <Text style={styles.noteContent}>{note.content}</Text>
-                <Text style={styles.noteDate}>{new Date(note.createdAt).toLocaleDateString()}</Text>
+                <Text style={styles.noteDate}>{formatDate(note.createdAt)}</Text>
               </View>
             ))
           )}

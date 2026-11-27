@@ -28,7 +28,10 @@ export function CurrencyInput({
   const errorId = error ? `${inputId}-error` : undefined;
   const helperId = helperText ? `${inputId}-helper` : undefined;
   const precisionId = `${inputId}-precision`;
-  const describedBy = [ariaDescribedBy, error ? errorId : null, helperText ? helperId : null, !error ? precisionId : null]
+  // Helper text is only rendered when there is no error, so only reference it then.
+  // Referencing an unrendered id would point assistive tech at nothing.
+  const showHelper = !error && !!helperText;
+  const describedBy = [ariaDescribedBy, error ? errorId : null, showHelper ? helperId : null, !error ? precisionId : null]
     .filter(Boolean)
     .join(" ") || undefined;
 

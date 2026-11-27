@@ -62,7 +62,7 @@ export function useDeepLink(): UseDeepLinkReturn {
 
   const routeOrPark = useCallback(
     (target: DeepLinkTarget, navigation?: NavigationContainerRef<RootStackParamList> | null) => {
-      if (requiresAuth(target) && !token) {
+      if (!navigation || navigation.isReady?.() === false || (requiresAuth(target) && !token)) {
         setPending(target);
         return;
       }
@@ -74,6 +74,7 @@ export function useDeepLink(): UseDeepLinkReturn {
 
   const handleUrl = useCallback(
     (url: string | null | undefined, navigation?: NavigationContainerRef<RootStackParamList> | null) => {
+      if (!url || !/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(url)) return;
       const target = parseDeepLink(url);
       if (!target) return; // malformed / unknown → ignore
       routeOrPark(target, navigation);
@@ -90,7 +91,7 @@ export function useDeepLink(): UseDeepLinkReturn {
 
   const resumePendingDeepLink = useCallback(
     (navigation: NavigationContainerRef<RootStackParamList> | null) => {
-      if (pendingTarget && token) {
+      if (pendingTarget && navigation && navigation.isReady?.() !== false && (token || !requiresAuth(pendingTarget))) {
         const target = pendingTarget;
         setPending(null);
         navigate(navigation, target);

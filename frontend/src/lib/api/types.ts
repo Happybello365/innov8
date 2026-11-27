@@ -53,6 +53,13 @@ export interface EvidenceRecord {
   mimeType: string;
   uploadedBy: string;
   createdAt: string;
+  /** Original file name as stored at upload time. */
+  fileName?: string;
+  /**
+   * Hex-encoded SHA-256 digest of the evidence file.
+   * Populated when the backend computes it at upload time.
+   */
+  checksum?: string;
 }
 
 export interface EvidenceResponse {

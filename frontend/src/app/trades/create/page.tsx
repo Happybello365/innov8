@@ -55,6 +55,37 @@ function StepIndicator() {
   );
 }
 
+function DraftBanners() {
+  const { recoveredDraftAt, dismissRecovery, discardDraft, conflict, acceptIncomingDraft, keepLocalDraft } = useTrade();
+  if (conflict) {
+    return (
+      <div role="alert" data-testid="draft-conflict" className="mb-4 p-4 rounded-lg border border-status-warning/40 bg-status-warning/10 text-sm text-text-primary">
+        <p className="font-semibold">This draft was edited in another tab</p>
+        <p className="text-text-secondary mt-1">
+          A newer version was saved at {new Date(conflict.incoming.savedAt).toLocaleTimeString()}. The most recent save wins by
+          default — load it, or keep your edits in this tab and overwrite the other version.
+        </p>
+        <div className="mt-3 flex gap-3">
+          <button type="button" onClick={acceptIncomingDraft} className="underline text-gold">Load newer version</button>
+          <button type="button" onClick={keepLocalDraft} className="underline text-text-secondary">Keep my edits</button>
+        </div>
+      </div>
+    );
+  }
+  if (recoveredDraftAt) {
+    return (
+      <div role="status" data-testid="draft-recovered" className="mb-4 p-4 rounded-lg border border-border-default bg-bg-elevated text-sm text-text-primary">
+        <p>We restored your unfinished trade draft from {new Date(recoveredDraftAt).toLocaleString()}.</p>
+        <div className="mt-3 flex gap-3">
+          <button type="button" onClick={dismissRecovery} className="underline text-gold">Continue draft</button>
+          <button type="button" onClick={discardDraft} className="underline text-text-secondary">Discard and start over</button>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 function CreateTradeInner() {
   const { step } = useTrade();
   const formRef = useRef<HTMLDivElement>(null);
@@ -116,6 +147,8 @@ function CreateTradeInner() {
             </button>
           )}
         </div>
+
+        {!showCsvImport && <DraftBanners />}
 
         {bulkResult && (
           <div className="mb-4 p-4 bg-status-success/10 border border-status-success/30 rounded-lg text-sm text-status-success" data-testid="bulk-result">

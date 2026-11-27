@@ -6,6 +6,7 @@ import { createTradeTemplateRouter } from "./trade.template.routes";
 import { createTradeWatchlistRouter } from "./trade.watchlist.routes";
 import { createTradeEvidenceRouter } from "./trade.evidence.routes";
 import { createTradeExportRouter } from "./trade.export.routes";
+import { createTradeArchiveRouter } from "./trade.archive.routes";
 import { createEscrowReleaseRouter } from "./escrow.release.routes";
 import { createEscrowScheduleRouter } from "./escrow.schedule.routes";
 import { createTradeManifestRouter } from "./trade.manifest.routes";
@@ -69,6 +70,7 @@ export function createPublicApiRouter(): Router {
 
   // Trade lifecycle — literal sub-routes must precede the generic /:id router.
   router.use("/trades", createTradeExportRouter());
+  router.use("/trades", createTradeArchiveRouter());
   router.use("/trades", createTradeTemplateRouter());
   router.use("/trades", createTradeWatchlistRouter());
   router.use("/trades", createTradeEvidenceRouter());

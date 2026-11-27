@@ -5,11 +5,11 @@ import { prisma } from '../../lib/db';
 import type { Prisma } from '@prisma/client';
 import { attachDeadLetterQueue } from '../deadLetter';
 import {
-  isInQuietHours,
   CRITICAL_NOTIFICATION_TYPES,
   StoredPreferenceBlob,
   QuietHoursPreference,
 } from '../../routes/notifications.preferences.routes';
+import { evaluateDeliveryPreferences } from '../../services/notificationDeliveryPolicy.service';
 
 /**
  * Compute the millisecond delay until quiet hours end.
@@ -57,8 +57,14 @@ export function createNotificationWorker(): Worker<NotificationJobData> {
           }) as { preferences: unknown } | null | undefined;
 
           if (prefRecord?.preferences) {
-            const blob = prefRecord.preferences as StoredPreferenceBlob;
-            if (blob.quietHours && isInQuietHours(blob.quietHours)) {
+            const blob = prefRecord.preferences as StoredPreferenceBlob & { optOut?: boolean };
+            const decision = evaluateDeliveryPreferences({
+              type: notificationEventType,
+              channel: type === 'in_app' ? 'in-app' : type,
+              locale: (metadata?.locale as string | undefined) ?? null,
+              preferences: blob,
+            });
+            if (decision.action === 'defer' && blob.quietHours) {
               const delay = msUntilQuietHoursEnd(blob.quietHours);
               appLogger.info(
                 { jobId: job.id, userAddress, delayMs: delay },
@@ -66,6 +72,10 @@ export function createNotificationWorker(): Worker<NotificationJobData> {
               );
               await notificationQueue.add('notification', job.data, { delay });
               return; // original job is done; re-queued version will process later
+            }
+            if (decision.action === 'drop' && decision.reason !== 'invalid_channel') {
+              appLogger.info({ jobId: job.id, userAddress, reason: decision.reason }, 'Notification suppressed by delivery preferences');
+              return;
             }
           }
         } catch (prefErr) {
